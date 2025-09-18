@@ -202,30 +202,33 @@ async def get_acquisto_dettaglio(acquisto_id: int, db: Session = Depends(get_db)
     if not acquisto:
         raise HTTPException(status_code=404, detail="Acquisto non trovato")
     
-    return {
-        "id": acquisto.id,
-        "id_acquisto_univoco": acquisto.id_acquisto_univoco,
-        "dove_acquistato": acquisto.dove_acquistato,
-        "venditore": acquisto.venditore,
-        "costo_acquisto": float(acquisto.costo_acquisto),
-        "costi_accessori": float(acquisto.costi_accessori or 0),
-        "costo_totale": acquisto.costo_totale,
-        "data_pagamento": acquisto.data_pagamento.strftime('%d/%m/%Y') if acquisto.data_pagamento else None,
-        "data_consegna": acquisto.data_consegna.strftime('%d/%m/%Y') if acquisto.data_consegna else None,
-        "note": acquisto.note,
-        "created_at": acquisto.created_at.strftime('%d/%m/%Y %H:%M'),
-        "prodotti": [
-            {
-                "id": p.id,
-                "seriale": p.seriale,
-                "prodotto_descrizione": p.prodotto_descrizione,
-                "note_prodotto": p.note_prodotto,
-                "venduto": p.venduto,
-                "ricavo_vendita": p.ricavo_vendita
-            }
-            for p in acquisto.prodotti
-        ]
-    }
+    try:
+        return {
+            "id": acquisto.id,
+            "id_acquisto_univoco": acquisto.id_acquisto_univoco,
+            "dove_acquistato": acquisto.dove_acquistato,
+            "venditore": acquisto.venditore,
+            "costo_acquisto": float(acquisto.costo_acquisto),
+            "costi_accessori": float(acquisto.costi_accessori or 0),
+            "costo_totale": acquisto.costo_totale,
+            "data_pagamento": acquisto.data_pagamento.strftime('%d/%m/%Y') if acquisto.data_pagamento else None,
+            "data_consegna": acquisto.data_consegna.strftime('%d/%m/%Y') if acquisto.data_consegna else None,
+            "note": acquisto.note or "",
+            "created_at": acquisto.created_at.strftime('%d/%m/%Y %H:%M'),
+            "prodotti": [
+                {
+                    "id": p.id,
+                    "seriale": p.seriale,
+                    "prodotto_descrizione": p.prodotto_descrizione,
+                    "note_prodotto": p.note_prodotto or "",
+                    "venduto": p.venduto,
+                    "ricavo_vendita": float(p.ricavo_vendita)
+                }
+                for p in acquisto.prodotti
+            ]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Errore nel recupero dati: {str(e)}")
 
 @app.post("/acquisti/{acquisto_id}/segna-arrivato")
 async def segna_acquisto_arrivato(acquisto_id: int, db: Session = Depends(get_db)):

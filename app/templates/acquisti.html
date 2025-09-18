@@ -25,9 +25,23 @@ function mostraDettaglio(acquistoId) {
     const modal = new bootstrap.Modal(document.getElementById('dettaglioModal'));
     modal.show();
     
+    // Reset contenuto
+    document.getElementById('dettaglioContent').innerHTML = `
+        <div class="text-center">
+            <div class="spinner-border" role="status"></div>
+            <p class="mt-2">Caricamento...</p>
+        </div>
+    `;
+    
     fetch(`/api/acquisti/${acquistoId}`)
-        .then(response => response.json())
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            return response.json();
+        })
         .then(data => {
+            console.log('Dati ricevuti:', data); // Debug
             document.getElementById('dettaglioContent').innerHTML = `
                 <div class="row">
                     <div class="col-md-6">
@@ -48,6 +62,7 @@ function mostraDettaglio(acquistoId) {
                                 <p><strong>Descrizione:</strong> ${p.prodotto_descrizione}</p>
                                 <p><strong>Stato:</strong> ${p.venduto ? '<span class="badge bg-success">Venduto</span>' : '<span class="badge bg-secondary">In Stock</span>'}</p>
                                 ${p.note_prodotto ? `<p><strong>Note:</strong> ${p.note_prodotto}</p>` : ''}
+                                ${p.venduto ? `<p><strong>Ricavo:</strong> €${p.ricavo_vendita}</p>` : ''}
                             </div>
                         `).join('')}
                     </div>
@@ -55,8 +70,13 @@ function mostraDettaglio(acquistoId) {
             `;
         })
         .catch(error => {
+            console.error('Errore:', error); // Debug
             document.getElementById('dettaglioContent').innerHTML = 
-                '<div class="alert alert-danger">Errore nel caricamento dei dati</div>';
+                `<div class="alert alert-danger">
+                    <strong>Errore nel caricamento dei dati</strong><br>
+                    ${error.message}
+                    <br><small>Controlla la console per maggiori dettagli</small>
+                </div>`;
         });
 }
 
