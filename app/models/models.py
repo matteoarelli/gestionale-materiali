@@ -1,4 +1,5 @@
-from sqlalchemy import Column, Integer, String, Decimal, Date, Boolean, DateTime, Text, ForeignKey
+from sqlalchemy import Column, Integer, String, Date, Boolean, DateTime, Text, ForeignKey
+from sqlalchemy.types import DECIMAL
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database import Base
@@ -12,8 +13,8 @@ class Acquisto(Base):
     venditore = Column(String(100), nullable=False)
     prodotto_descrizione = Column(Text, nullable=False)
     seriale = Column(String(100), unique=True, index=True, nullable=False)
-    costo_acquisto = Column(Decimal(10, 2), nullable=False)
-    costi_accessori = Column(Decimal(10, 2), default=0.00)
+    costo_acquisto = Column(DECIMAL(10, 2), nullable=False)
+    costi_accessori = Column(DECIMAL(10, 2), default=0.00)
     data_pagamento = Column(Date, nullable=True)
     data_consegna = Column(Date, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -49,8 +50,8 @@ class Vendita(Base):
     seriale = Column(String(100), ForeignKey("acquisti.seriale"), nullable=False, index=True)
     data_vendita = Column(Date, nullable=False)
     canale_vendita = Column(String(50), nullable=False)  # ebay, backmarket, refurbed, sede, etc.
-    prezzo_vendita = Column(Decimal(10, 2), nullable=False)
-    commissioni = Column(Decimal(10, 2), default=0.00)
+    prezzo_vendita = Column(DECIMAL(10, 2), nullable=False)
+    commissioni = Column(DECIMAL(10, 2), default=0.00)
     synced_from_invoicex = Column(Boolean, default=True)
     invoicex_id = Column(String(50), nullable=True)  # ID dalla fattura di InvoiceX
     created_at = Column(DateTime(timezone=True), server_default=func.now())
