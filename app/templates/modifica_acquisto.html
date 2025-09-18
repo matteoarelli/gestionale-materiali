@@ -1,0 +1,200 @@
+{% extends "base.html" %}
+
+{% block title %}Modifica Acquisto - Gestionale Materiali{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-10 mx-auto">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="bi bi-pencil"></i> Modifica Acquisto: {{ acquisto.id_acquisto_univoco }}
+                </h5>
+            </div>
+            <div class="card-body">
+                <form method="POST" action="/acquisti/{{ acquisto.id }}/modifica" id="modificaAcquistoForm">
+                    <!-- Dati generali acquisto -->
+                    <div class="card mb-4">
+                        <div class="card-header bg-light">
+                            <h6 class="mb-0">Dati Generali Acquisto</h6>
+                        </div>
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-md-4 mb-3">
+                                    <label for="id_acquisto_univoco" class="form-label">ID Acquisto *</label>
+                                    <input type="text" class="form-control" id="id_acquisto_univoco" 
+                                           name="id_acquisto_univoco" value="{{ acquisto.id_acquisto_univoco }}" required>
+                                </div>
+                                <div class="col-md-4 mb-3">
+                                    <label for="dove_acquistato" class="form-label">Dove Acquistato *</label>
+                                    <input type="text" class="form-control" id="dove_acquistato" 
+                                           name="dove_acquistato" value="{{ acquisto.dove_acquistato }}" required>
+                                </div>
+                                <div class="col-md-4 mb-3">
+                                    <label for="venditore" class="form-label">Venditore *</label>
+                                    <input type="text" class="form-control" id="venditore" 
+                                           name="venditore" value="{{ acquisto.venditore }}" required>
+                                </div>
+                            </div>
+                            
+                            <div class="row">
+                                <div class="col-md-3 mb-3">
+                                    <label for="costo_acquisto" class="form-label">Costo Totale Acquisto (€) *</label>
+                                    <input type="number" step="0.01" class="form-control" id="costo_acquisto" 
+                                           name="costo_acquisto" value="{{ acquisto.costo_acquisto }}" required>
+                                </div>
+                                <div class="col-md-3 mb-3">
+                                    <label for="costi_accessori" class="form-label">Costi Accessori (€)</label>
+                                    <input type="number" step="0.01" class="form-control" id="costi_accessori" 
+                                           name="costi_accessori" value="{{ acquisto.costi_accessori or 0 }}">
+                                </div>
+                                <div class="col-md-3 mb-3">
+                                    <label for="data_pagamento" class="form-label">Data Pagamento</label>
+                                    <input type="date" class="form-control" id="data_pagamento" 
+                                           name="data_pagamento" value="{{ acquisto.data_pagamento.strftime('%Y-%m-%d') if acquisto.data_pagamento else '' }}">
+                                </div>
+                                <div class="col-md-3 mb-3">
+                                    <label for="data_consegna" class="form-label">Data Consegna</label>
+                                    <input type="date" class="form-control" id="data_consegna" 
+                                           name="data_consegna" value="{{ acquisto.data_consegna.strftime('%Y-%m-%d') if acquisto.data_consegna else '' }}">
+                                </div>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label for="note" class="form-label">Note Acquisto</label>
+                                <textarea class="form-control" id="note" name="note" rows="2">{{ acquisto.note or '' }}</textarea>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Prodotti esistenti -->
+                    <div class="card mb-4">
+                        <div class="card-header bg-light d-flex justify-content-between align-items-center">
+                            <h6 class="mb-0">Prodotti nell'Acquisto ({{ acquisto.prodotti|length }})</h6>
+                            <button type="button" class="btn btn-sm btn-success" onclick="aggiungiProdotto()">
+                                <i class="bi bi-plus"></i> Aggiungi Prodotto
+                            </button>
+                        </div>
+                        <div class="card-body" id="prodottiContainer">
+                            {% for prodotto in acquisto.prodotti %}
+                            <div class="prodotto-item border rounded p-3 mb-3" data-index="{{ loop.index0 }}" data-prodotto-id="{{ prodotto.id }}">
+                                <div class="d-flex justify-content-between align-items-center mb-3">
+                                    <div>
+                                        <h6 class="mb-0">Prodotto {{ loop.index }}</h6>
+                                        {% if prodotto.venduto %}
+                                            <span class="badge bg-danger">VENDUTO - Non modificabile</span>
+                                        {% endif %}
+                                    </div>
+                                    {% if not prodotto.venduto %}
+                                    <button type="button" class="btn btn-sm btn-outline-danger" onclick="rimuoviProdotto({{ loop.index0 }})">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                    {% endif %}
+                                </div>
+                                
+                                <input type="hidden" name="prodotti[{{ loop.index0 }}][id]" value="{{ prodotto.id }}">
+                                
+                                <div class="row">
+                                    <div class="col-md-4 mb-3">
+                                        <label class="form-label">Seriale *</label>
+                                        <input type="text" class="form-control" name="prodotti[{{ loop.index0 }}][seriale]" 
+                                               value="{{ prodotto.seriale }}" required {{ 'readonly' if prodotto.venduto else '' }}>
+                                    </div>
+                                    <div class="col-md-8 mb-3">
+                                        <label class="form-label">Descrizione Prodotto *</label>
+                                        <input type="text" class="form-control" name="prodotti[{{ loop.index0 }}][descrizione]" 
+                                               value="{{ prodotto.prodotto_descrizione }}" required {{ 'readonly' if prodotto.venduto else '' }}>
+                                    </div>
+                                </div>
+                                
+                                <div class="row">
+                                    <div class="col-md-12 mb-3">
+                                        <label class="form-label">Note Prodotto</label>
+                                        <textarea class="form-control" name="prodotti[{{ loop.index0 }}][note]" rows="2" {{ 'readonly' if prodotto.venduto else '' }}>{{ prodotto.note_prodotto or '' }}</textarea>
+                                    </div>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+
+                    <div class="d-grid gap-2 d-md-flex justify-content-md-end">
+                        <a href="/acquisti" class="btn btn-secondary me-md-2">
+                            <i class="bi bi-arrow-left"></i> Annulla
+                        </a>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-save"></i> Salva Modifiche
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% block scripts %}
+<script>
+let prodottoIndex = {{ acquisto.prodotti|length }};
+
+function aggiungiProdotto() {
+    const container = document.getElementById('prodottiContainer');
+    const prodottoHtml = `
+        <div class="prodotto-item border rounded p-3 mb-3" data-index="${prodottoIndex}" data-nuovo="true">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h6 class="mb-0">Prodotto ${prodottoIndex + 1} (Nuovo)</h6>
+                <button type="button" class="btn btn-sm btn-outline-danger" onclick="rimuoviProdotto(${prodottoIndex})">
+                    <i class="bi bi-trash"></i>
+                </button>
+            </div>
+            
+            <div class="row">
+                <div class="col-md-4 mb-3">
+                    <label class="form-label">Seriale *</label>
+                    <input type="text" class="form-control" name="prodotti[${prodottoIndex}][seriale]" required>
+                </div>
+                <div class="col-md-8 mb-3">
+                    <label class="form-label">Descrizione Prodotto *</label>
+                    <input type="text" class="form-control" name="prodotti[${prodottoIndex}][descrizione]" required>
+                </div>
+            </div>
+            
+            <div class="row">
+                <div class="col-md-12 mb-3">
+                    <label class="form-label">Note Prodotto</label>
+                    <textarea class="form-control" name="prodotti[${prodottoIndex}][note]" rows="2"></textarea>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    container.insertAdjacentHTML('beforeend', prodottoHtml);
+    prodottoIndex++;
+}
+
+function rimuoviProdotto(index) {
+    const prodotto = document.querySelector(`[data-index="${index}"]`);
+    
+    // Se è un prodotto nuovo, rimuovi direttamente
+    if (prodotto.dataset.nuovo) {
+        prodotto.remove();
+    } else {
+        // Se è un prodotto esistente, conferma prima
+        if (confirm('Sei sicuro di voler rimuovere questo prodotto? Questa azione non può essere annullata.')) {
+            prodotto.remove();
+        }
+    }
+    
+    rinumeraProdotti();
+}
+
+function rinumeraProdotti() {
+    const prodotti = document.querySelectorAll('.prodotto-item');
+    prodotti.forEach((prodotto, index) => {
+        const isNew = prodotto.dataset.nuovo;
+        const title = prodotto.querySelector('h6');
+        title.textContent = `Prodotto ${index + 1}${isNew ? ' (Nuovo)' : ''}`;
+    });
+}
+</script>
+{% endblock %}
+{% endblock %}
