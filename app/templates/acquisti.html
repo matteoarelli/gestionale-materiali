@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+
+{% block title %}Acquisti - Gestionale Materiali{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h1><i class="bi bi-cart-plus"></i> Acquisti</h1>
+        <p class="text-muted">Tutti gli acquisti registrati</p>
+    </div>
+    <div>
+        <a href="/acquisti/nuovo" class="btn btn-primary">
+            <i class="bi bi-plus-circle"></i> Nuovo Acquisto
+        </a>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-striped table-hover">
+                <thead class="table-dark">
+                    <tr>
+                        <th>ID Acquisto</th>
+                        <th>Prodotto</th>
+                        <th>Seriale</th>
+                        <th>Venditore</th>
+                        <th>Costo Totale</th>
+                        <th>Data Acquisto</th>
+                        <th>Stato</th>
+                        <th>Margine</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for acquisto in acquisti %}
+                    <tr>
+                        <td>
+                            <strong>{{ acquisto.id_acquisto_univoco }}</strong>
+                            <br>
+                            <small class="text-muted">{{ acquisto.dove_acquistato }}</small>
+                        </td>
+                        <td>
+                            <div style="max-width: 200px;">
+                                {{ acquisto.prodotto_descrizione[:50] }}
+                                {% if acquisto.prodotto_descrizione|length > 50 %}...{% endif %}
+                            </div>
+                        </td>
+                        <td>
+                            <code>{{ acquisto.seriale }}</code>
+                        </td>
+                        <td>{{ acquisto.venditore }}</td>
+                        <td>
+                            <strong>€ {{ "%.2f"|format(acquisto.costo_totale) }}</strong>
+                            {% if acquisto.costi_accessori > 0 %}
+                                <br>
+                                <small class="text-muted">
+                                    ({{ "%.2f"|format(acquisto.costo_acquisto) }} + {{ "%.2f"|format(acquisto.costi_accessori) }})
+                                </small>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {{ acquisto.created_at.strftime('%d/%m/%Y') }}
+                            {% if acquisto.data_consegna %}
+                                <br>
+                                <small class="text-success">
+                                    <i class="bi bi-truck"></i> {{ acquisto.data_consegna.strftime('%d/%m/%Y') }}
+                                </small>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if acquisto.venduto %}
+                                <span class="badge bg-success">
+                                    <i class="bi bi-check-circle"></i> Venduto
+                                </span>
+                            {% else %}
+                                <span class="badge bg-warning">
+                                    <i class="bi bi-box-seam"></i> In Stock
+                                </span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if acquisto.venduto %}
+                                {% set margine = acquisto.margine %}
+                                <strong class="{% if margine >= 0 %}text-success{% else %}text-danger{% endif %}">
+                                    € {{ "%.2f"|format(margine) }}
+                                </strong>
+                                <br>
+                                <small class="text-muted">
+                                    Ricavo: € {{ "%.2f"|format(acquisto.ricavo_totale) }}
+                                </small>
+                            {% else %}
+                                <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        
+        {% if not acquisti %}
+        <div class="text-center py-5">
+            <i class="bi bi-cart-plus fs-1 text-muted"></i>
+            <p class="text-muted mt-3">Nessun acquisto registrato ancora</p>
+            <a href="/acquisti/nuovo" class="btn btn-primary">
+                <i class="bi bi-plus-circle"></i> Registra il tuo primo acquisto
+            </a>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Riepilogo statistiche -->
+{% if acquisti %}
+<div class="row mt-4">
+    <div class="col-md-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <h6 class="text-muted">Totale Acquisti</h6>
+                <h4>{{ acquisti|length }}</h4>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <h6 class="text-muted">Venduti</h6>
+                <h4 class="text-success">{{ acquisti|selectattr("venduto")|list|length }}</h4>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <h6 class="text-muted">In Stock</h6>
+                <h4 class="text-warning">{{ acquisti|rejectattr("venduto")|list|length }}</h4>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <h6 class="text-muted">Investimento</h6>
+                <h4 class="text-primary">€ {{ "%.2f"|format(acquisti|sum(attribute="costo_totale")) }}</h4>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+
+{% block title %}Nuovo Acquisto - Gestionale Materiali{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-8 mx-auto">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="bi bi-plus-circle"></i> Nuovo Acquisto
+                </h5>
+            </div>
+            <div class="card-body">
+                <form method="POST" action="/acquisti/nuovo">
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="id_acquisto_univoco" class="form-label">ID Acquisto *</label>
+                            <input type="text" class="form-control" id="id_acquisto_univoco" 
+                                   name="id_acquisto_univoco" required>
+                            <small class="form-text text-muted">Identificativo univoco per questo acquisto</small>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="seriale" class="form-label">Seriale *</label>
+                            <input type="text" class="form-control" id="seriale" 
+                                   name="seriale" required>
+                            <small class="form-text text-muted">Numero seriale del prodotto</small>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="dove_acquistato" class="form-label">Dove Acquistato *</label>
+                            <input type="text" class="form-control" id="dove_acquistato" 
+                                   name="dove_acquistato" required>
+                            <small class="form-text text-muted">Piattaforma o negozio di acquisto</small>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="venditore" class="form-label">Venditore *</label>
+                            <input type="text" class="form-control" id="venditore" 
+                                   name="venditore" required>
+                            <small class="form-text text-muted">Nome del venditore</small>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="prodotto_descrizione" class="form-label">Descrizione Prodotto *</label>
+                        <textarea class="form-control" id="prodotto_descrizione" 
+                                  name="prodotto_descrizione" rows="3" required></textarea>
+                        <small class="form-text text-muted">Descrizione completa del prodotto</small>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="costo_acquisto" class="form-label">Costo Acquisto (€) *</label>
+                            <input type="number" step="0.01" class="form-control" id="costo_acquisto" 
+                                   name="costo_acquisto" required>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="costi_accessori" class="form-label">Costi Accessori (€)</label>
+                            <input type="number" step="0.01" class="form-control" id="costi_accessori" 
+                                   name="costi_accessori" value="0.00">
+                            <small class="form-text text-muted">Spedizione, commissioni, etc.</small>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="data_pagamento" class="form-label">Data Pagamento</label>
+                            <input type="date" class="form-control" id="data_pagamento" 
+                                   name="data_pagamento">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="data_consegna" class="form-label">Data Consegna</label>
+                            <input type="date" class="form-control" id="data_consegna" 
+                                   name="data_consegna">
+                        </div>
+                    </div>
+
+                    <div class="d-grid gap-2 d-md-flex justify-content-md-end">
+                        <a href="/acquisti" class="btn btn-secondary me-md-2">
+                            <i class="bi bi-arrow-left"></i> Annulla
+                        </a>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-save"></i> Salva Acquisto
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% block scripts %}
+<script>
+    // Auto-genera ID acquisto basato su timestamp se vuoto
+    document.getElementById('id_acquisto_univoco').addEventListener('focus', function() {
+        if (this.value === '') {
+            const now = new Date();
+            const timestamp = now.getFullYear().toString() + 
+                            (now.getMonth() + 1).toString().padStart(2, '0') + 
+                            now.getDate().toString().padStart(2, '0') + '_' +
+                            now.getHours().toString().padStart(2, '0') + 
+                            now.getMinutes().toString().padStart(2, '0');
+            this.value = 'ACQ_' + timestamp;
+        }
+    });
+</script>
+{% endblock %}
+{% endblock %}
