@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+
+{% block title %}Inserisci Seriali - Gestionale Materiali{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-8 mx-auto">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="bi bi-upc-scan"></i> Inserisci Seriali Mancanti
+                </h5>
+                <p class="mb-0 text-muted">Acquisto: <strong>{{ acquisto.id_acquisto_univoco }}</strong></p>
+            </div>
+            <div class="card-body">
+                <!-- Info acquisto -->
+                <div class="alert alert-info">
+                    <strong>{{ acquisto.venditore }}</strong> - {{ acquisto.dove_acquistato }}<br>
+                    <small>Costo totale: €{{ "%.2f"|format(acquisto.costo_totale) }}</small>
+                    {% if acquisto.data_consegna %}
+                        <br><small>Arrivato il: {{ acquisto.data_consegna.strftime('%d/%m/%Y') }}</small>
+                    {% endif %}
+                </div>
+
+                <form method="POST" action="/acquisti/{{ acquisto.id }}/seriali">
+                    {% set prodotti_senza_seriale = acquisto.prodotti|selectattr("seriale", "none")|list %}
+                    
+                    {% if prodotti_senza_seriale %}
+                    <h6 class="mb-3">Prodotti senza seriale ({{ prodotti_senza_seriale|length }})</h6>
+                    
+                    {% for prodotto in prodotti_senza_seriale %}
+                    <div class="card mb-3">
+                        <div class="card-body">
+                            <div class="row align-items-center">
+                                <div class="col-md-6">
+                                    <h6 class="mb-1">{{ prodotto.prodotto_descrizione }}</h6>
+                                    {% if prodotto.note_prodotto %}
+                                        <small class="text-muted">{{ prodotto.note_prodotto }}</small>
+                                    {% endif %}
+                                </div>
+                                <div class="col-md-6">
+                                    <input type="hidden" name="prodotti[{{ loop.index0 }}][id]" value="{{ prodotto.id }}">
+                                    <div class="input-group">
+                                        <span class="input-group-text"><i class="bi bi-upc-scan"></i></span>
+                                        <input type="text" class="form-control" 
+                                               name="prodotti[{{ loop.index0 }}][seriale]" 
+                                               placeholder="Inserisci seriale"
+                                               autocomplete="off">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                    {% else %}
+                    <div class="alert alert-success">
+                        <i class="bi bi-check-circle"></i> Tutti i prodotti di questo acquisto hanno già un seriale assegnato!
+                    </div>
+                    {% endif %}
+
+                    <!-- Prodotti con seriale (solo visualizzazione) -->
+                    {% set prodotti_con_seriale = acquisto.prodotti|selectattr("seriale")|list %}
+                    {% if prodotti_con_seriale %}
+                    <h6 class="mb-3 mt-4">Prodotti con seriale già assegnato ({{ prodotti_con_seriale|length }})</h6>
+                    
+                    {% for prodotto in prodotti_con_seriale %}
+                    <div class="card mb-2 border-success">
+                        <div class="card-body py-2">
+                            <div class="row align-items-center">
+                                <div class="col-md-6">
+                                    <small><strong>{{ prodotto.prodotto_descrizione }}</strong></small>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="input-group input-group-sm">
+                                        <span class="input-group-text bg-success text-white"><i class="bi bi-check"></i></span>
+                                        <input type="text" class="form-control" 
+                                               value="{{ prodotto.seriale }}" readonly>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                    {% endif %}
+
+                    <div class="d-grid gap-2 d-md-flex justify-content-md-end mt-4">
+                        <a href="/acquisti" class="btn btn-secondary me-md-2">
+                            <i class="bi bi-arrow-left"></i> Torna agli Acquisti
+                        </a>
+                        {% if prodotti_senza_seriale %}
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-save"></i> Salva Seriali
+                        </button>
+                        {% endif %}
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% block scripts %}
+<script>
+// Auto-focus sul primo campo seriale
+document.addEventListener('DOMContentLoaded', function() {
+    const firstSerialInput = document.querySelector('input[name*="[seriale]"]');
+    if (firstSerialInput) {
+        firstSerialInput.focus();
+    }
+});
+
+// Passa al campo successivo quando si preme Enter
+document.querySelectorAll('input[name*="[seriale]"]').forEach((input, index, inputs) => {
+    input.addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            const nextIndex = index + 1;
+            if (nextIndex < inputs.length) {
+                inputs[nextIndex].focus();
+            } else {
+                // Ultimo campo, submit del form
+                this.form.submit();
+            }
+        }
+    });
+});
+
+// Validazione in tempo reale per seriali duplicati
+document.querySelectorAll('input[name*="[seriale]"]').forEach(input => {
+    input.addEventListener('input', function() {
+        const value = this.value.trim();
+        if (value.length > 0) {
+            // Verifica duplicati negli altri campi
+            const otherInputs = document.querySelectorAll('input[name*="[seriale]"]');
+            let isDuplicate = false;
+            
+            otherInputs.forEach(otherInput => {
+                if (otherInput !== this && otherInput.value.trim() === value) {
+                    isDuplicate = true;
+                }
+            });
+            
+            if (isDuplicate) {
+                this.classList.add('is-invalid');
+                if (!this.nextElementSibling || !this.nextElementSibling.classList.contains('invalid-feedback')) {
+                    const feedback = document.createElement('div');
+                    feedback.className = 'invalid-feedback';
+                    feedback.textContent = 'Seriale duplicato!';
+                    this.parentNode.appendChild(feedback);
+                }
+            } else {
+                this.classList.remove('is-invalid');
+                const feedback = this.parentNode.querySelector('.invalid-feedback');
+                if (feedback) {
+                    feedback.remove();
+                }
+            }
+        } else {
+            this.classList.remove('is-invalid');
+            const feedback = this.parentNode.querySelector('.invalid-feedback');
+            if (feedback) {
+                feedback.remove();
+            }
+        }
+    });
+});
+</script>
+{% endblock %}
+{% endblock %}

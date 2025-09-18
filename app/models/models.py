@@ -55,7 +55,7 @@ class Prodotto(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     acquisto_id = Column(Integer, ForeignKey("acquisti.id"), nullable=False, index=True)
-    seriale = Column(String(100), unique=True, index=True, nullable=False)
+    seriale = Column(String(100), unique=False, index=True, nullable=True)  # Ora può essere null
     prodotto_descrizione = Column(Text, nullable=False)
     note_prodotto = Column(Text, nullable=True)  # Note specifiche del prodotto
     created_at = Column(DateTime(timezone=True), server_default=func.now())

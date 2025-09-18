@@ -166,16 +166,16 @@ async def crea_acquisto(request: Request, db: Session = Depends(get_db)):
         descrizione = prodotto_info.get('descrizione', '').strip()
         note_prodotto = prodotto_info.get('note', '').strip()
         
-        if not seriale or not descrizione:
+        if not descrizione:  # Solo descrizione è obbligatoria
             continue
             
-        # Verifica seriale univoco
-        if db.query(Prodotto).filter(Prodotto.seriale == seriale).first():
+        # Verifica seriale univoco (solo se fornito)
+        if seriale and db.query(Prodotto).filter(Prodotto.seriale == seriale).first():
             raise HTTPException(status_code=400, detail=f"Seriale {seriale} già esistente")
         
         nuovo_prodotto = Prodotto(
             acquisto_id=nuovo_acquisto.id,
-            seriale=seriale,
+            seriale=seriale if seriale else None,
             prodotto_descrizione=descrizione,
             note_prodotto=note_prodotto if note_prodotto else None
         )
@@ -203,7 +203,19 @@ async def get_acquisto_dettaglio(acquisto_id: int, db: Session = Depends(get_db)
         raise HTTPException(status_code=404, detail="Acquisto non trovato")
     
     try:
-        return {
+        # Forza il caricamento dei prodotti
+        prodotti_list = []
+        for p in acquisto.prodotti:
+            prodotti_list.append({
+                "id": p.id,
+                "seriale": p.seriale or "",
+                "prodotto_descrizione": p.prodotto_descrizione,
+                "note_prodotto": p.note_prodotto or "",
+                "venduto": p.venduto,
+                "ricavo_vendita": float(p.ricavo_vendita) if p.ricavo_vendita else 0.0
+            })
+        
+        result = {
             "id": acquisto.id,
             "id_acquisto_univoco": acquisto.id_acquisto_univoco,
             "dove_acquistato": acquisto.dove_acquistato,
@@ -215,19 +227,13 @@ async def get_acquisto_dettaglio(acquisto_id: int, db: Session = Depends(get_db)
             "data_consegna": acquisto.data_consegna.strftime('%d/%m/%Y') if acquisto.data_consegna else None,
             "note": acquisto.note or "",
             "created_at": acquisto.created_at.strftime('%d/%m/%Y %H:%M'),
-            "prodotti": [
-                {
-                    "id": p.id,
-                    "seriale": p.seriale,
-                    "prodotto_descrizione": p.prodotto_descrizione,
-                    "note_prodotto": p.note_prodotto or "",
-                    "venduto": p.venduto,
-                    "ricavo_vendita": float(p.ricavo_vendita)
-                }
-                for p in acquisto.prodotti
-            ]
+            "prodotti": prodotti_list
         }
+        
+        return result
+        
     except Exception as e:
+        print(f"Errore API dettagli: {str(e)}")  # Debug log
         raise HTTPException(status_code=500, detail=f"Errore nel recupero dati: {str(e)}")
 
 @app.post("/acquisti/{acquisto_id}/segna-arrivato")

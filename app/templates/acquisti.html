@@ -231,6 +231,15 @@ function confermaEliminazione(acquistoId, nomeAcquisto) {
                                     <i class="bi bi-eye"></i>
                                 </button>
                                 
+                                <!-- Inserisci seriali (se ci sono prodotti senza seriale) -->
+                                {% set prodotti_senza_seriale = acquisto.prodotti|selectattr("seriale", "none")|list %}
+                                {% if prodotti_senza_seriale %}
+                                <a href="/acquisti/{{ acquisto.id }}/seriali" 
+                                   class="btn btn-sm btn-outline-warning" title="Inserisci seriali mancanti">
+                                    <i class="bi bi-upc-scan"></i>
+                                </a>
+                                {% endif %}
+                                
                                 <!-- Modifica -->
                                 <a href="/acquisti/{{ acquisto.id }}/modifica" 
                                    class="btn btn-sm btn-outline-primary" title="Modifica acquisto">
