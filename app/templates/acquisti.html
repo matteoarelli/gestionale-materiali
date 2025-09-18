@@ -2,6 +2,99 @@
 
 {% block title %}Acquisti - Gestionale Materiali{% endblock %}
 
+{% block scripts %}
+<!-- Modal per dettaglio acquisto -->
+<div class="modal fade" id="dettaglioModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Dettaglio Acquisto</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="dettaglioContent">
+                <div class="text-center">
+                    <div class="spinner-border" role="status"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function mostraDettaglio(acquistoId) {
+    const modal = new bootstrap.Modal(document.getElementById('dettaglioModal'));
+    modal.show();
+    
+    fetch(`/api/acquisti/${acquistoId}`)
+        .then(response => response.json())
+        .then(data => {
+            document.getElementById('dettaglioContent').innerHTML = `
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6>Informazioni Generali</h6>
+                        <p><strong>ID:</strong> ${data.id_acquisto_univoco}</p>
+                        <p><strong>Venditore:</strong> ${data.venditore}</p>
+                        <p><strong>Dove acquistato:</strong> ${data.dove_acquistato}</p>
+                        <p><strong>Costo:</strong> €${data.costo_acquisto} + €${data.costi_accessori} = €${data.costo_totale}</p>
+                        <p><strong>Data pagamento:</strong> ${data.data_pagamento || 'Non specificata'}</p>
+                        <p><strong>Data consegna:</strong> ${data.data_consegna || 'Non ancora arrivato'}</p>
+                        ${data.note ? `<p><strong>Note:</strong> ${data.note}</p>` : ''}
+                    </div>
+                    <div class="col-md-6">
+                        <h6>Prodotti (${data.prodotti.length})</h6>
+                        ${data.prodotti.map(p => `
+                            <div class="border rounded p-2 mb-2">
+                                <p><strong>Seriale:</strong> <code>${p.seriale}</code></p>
+                                <p><strong>Descrizione:</strong> ${p.prodotto_descrizione}</p>
+                                <p><strong>Stato:</strong> ${p.venduto ? '<span class="badge bg-success">Venduto</span>' : '<span class="badge bg-secondary">In Stock</span>'}</p>
+                                ${p.note_prodotto ? `<p><strong>Note:</strong> ${p.note_prodotto}</p>` : ''}
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+        })
+        .catch(error => {
+            document.getElementById('dettaglioContent').innerHTML = 
+                '<div class="alert alert-danger">Errore nel caricamento dei dati</div>';
+        });
+}
+
+function segnaArrivato(acquistoId) {
+    if (confirm('Segnare questo acquisto come arrivato? Verrà impostata la data di oggi come data di consegna.')) {
+        fetch(`/acquisti/${acquistoId}/segna-arrivato`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        })
+        .then(response => {
+            if (response.ok) {
+                location.reload();
+            } else {
+                alert('Errore nell\'aggiornamento');
+            }
+        });
+    }
+}
+
+function confermaEliminazione(acquistoId, nomeAcquisto) {
+    if (confirm(`Sei sicuro di voler eliminare l'acquisto "${nomeAcquisto}"? Questa azione non può essere annullata.`)) {
+        fetch(`/acquisti/${acquistoId}`, {
+            method: 'DELETE'
+        })
+        .then(response => {
+            if (response.ok) {
+                location.reload();
+            } else {
+                alert('Errore nell\'eliminazione');
+            }
+        });
+    }
+}
+</script>
+{% endblock %}
+
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
@@ -28,6 +121,7 @@
                         <th>Data Acquisto</th>
                         <th>Stato</th>
                         <th>Margine</th>
+                        <th width="200px">Azioni</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -109,6 +203,34 @@
                             {% else %}
                                 <span class="text-muted">-</span>
                             {% endif %}
+                        <td>
+                            <div class="btn-group" role="group">
+                                <!-- Visualizza dettaglio -->
+                                <button type="button" class="btn btn-sm btn-outline-info" 
+                                        title="Visualizza dettaglio" onclick="mostraDettaglio({{ acquisto.id }})">
+                                    <i class="bi bi-eye"></i>
+                                </button>
+                                
+                                <!-- Modifica -->
+                                <a href="/acquisti/{{ acquisto.id }}/modifica" 
+                                   class="btn btn-sm btn-outline-primary" title="Modifica acquisto">
+                                    <i class="bi bi-pencil"></i>
+                                </a>
+                                
+                                <!-- Segna come arrivato (solo se non ha data consegna) -->
+                                {% if not acquisto.data_consegna %}
+                                <button type="button" class="btn btn-sm btn-outline-success" 
+                                        title="Segna come arrivato" onclick="segnaArrivato({{ acquisto.id }})">
+                                    <i class="bi bi-truck"></i>
+                                </button>
+                                {% endif %}
+                                
+                                <!-- Elimina -->
+                                <button type="button" class="btn btn-sm btn-outline-danger" 
+                                        title="Elimina acquisto" onclick="confermaEliminazione({{ acquisto.id }}, '{{ acquisto.id_acquisto_univoco }}')">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </div>
                         </td>
                     </tr>
                     {% endfor %}

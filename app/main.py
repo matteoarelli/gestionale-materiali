@@ -195,10 +195,84 @@ async def lista_vendite(request: Request, db: Session = Depends(get_db)):
         "vendite": vendite
     })
 
-@app.get("/health")
-async def health_check():
-    """Health check per Railway"""
-    return {"status": "healthy", "timestamp": datetime.now().isoformat()}
+@app.get("/api/acquisti/{acquisto_id}")
+async def get_acquisto_dettaglio(acquisto_id: int, db: Session = Depends(get_db)):
+    """API per ottenere dettagli completi di un acquisto"""
+    acquisto = db.query(Acquisto).filter(Acquisto.id == acquisto_id).first()
+    if not acquisto:
+        raise HTTPException(status_code=404, detail="Acquisto non trovato")
+    
+    return {
+        "id": acquisto.id,
+        "id_acquisto_univoco": acquisto.id_acquisto_univoco,
+        "dove_acquistato": acquisto.dove_acquistato,
+        "venditore": acquisto.venditore,
+        "costo_acquisto": float(acquisto.costo_acquisto),
+        "costi_accessori": float(acquisto.costi_accessori or 0),
+        "costo_totale": acquisto.costo_totale,
+        "data_pagamento": acquisto.data_pagamento.strftime('%d/%m/%Y') if acquisto.data_pagamento else None,
+        "data_consegna": acquisto.data_consegna.strftime('%d/%m/%Y') if acquisto.data_consegna else None,
+        "note": acquisto.note,
+        "created_at": acquisto.created_at.strftime('%d/%m/%Y %H:%M'),
+        "prodotti": [
+            {
+                "id": p.id,
+                "seriale": p.seriale,
+                "prodotto_descrizione": p.prodotto_descrizione,
+                "note_prodotto": p.note_prodotto,
+                "venduto": p.venduto,
+                "ricavo_vendita": p.ricavo_vendita
+            }
+            for p in acquisto.prodotti
+        ]
+    }
+
+@app.post("/acquisti/{acquisto_id}/segna-arrivato")
+async def segna_acquisto_arrivato(acquisto_id: int, db: Session = Depends(get_db)):
+    """Segna un acquisto come arrivato (imposta data consegna a oggi)"""
+    acquisto = db.query(Acquisto).filter(Acquisto.id == acquisto_id).first()
+    if not acquisto:
+        raise HTTPException(status_code=404, detail="Acquisto non trovato")
+    
+    acquisto.data_consegna = date.today()
+    db.commit()
+    
+    return {"message": "Acquisto segnato come arrivato"}
+
+@app.delete("/acquisti/{acquisto_id}")
+async def elimina_acquisto(acquisto_id: int, db: Session = Depends(get_db)):
+    """Elimina un acquisto e tutti i suoi prodotti"""
+    acquisto = db.query(Acquisto).filter(Acquisto.id == acquisto_id).first()
+    if not acquisto:
+        raise HTTPException(status_code=404, detail="Acquisto non trovato")
+    
+    # Verifica che nessun prodotto sia già stato venduto
+    prodotti_venduti = [p for p in acquisto.prodotti if p.venduto]
+    if prodotti_venduti:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Impossibile eliminare: {len(prodotti_venduti)} prodotti già venduti"
+        )
+    
+    # Elimina prima i prodotti, poi l'acquisto
+    for prodotto in acquisto.prodotti:
+        db.delete(prodotto)
+    db.delete(acquisto)
+    db.commit()
+    
+    return {"message": "Acquisto eliminato con successo"}
+
+@app.get("/acquisti/{acquisto_id}/modifica", response_class=HTMLResponse)
+async def modifica_acquisto_form(acquisto_id: int, request: Request, db: Session = Depends(get_db)):
+    """Form per modificare un acquisto"""
+    acquisto = db.query(Acquisto).filter(Acquisto.id == acquisto_id).first()
+    if not acquisto:
+        raise HTTPException(status_code=404, detail="Acquisto non trovato")
+    
+    return templates.TemplateResponse("modifica_acquisto.html", {
+        "request": request,
+        "acquisto": acquisto
+    })
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
