@@ -36,12 +36,12 @@
                             {% endif %}
                         </td>
                         <td>
-                            {% if vendita.acquisto %}
+                            {% if vendita.prodotto %}
                                 <div style="max-width: 200px;">
-                                    {{ vendita.acquisto.prodotto_descrizione[:50] }}
-                                    {% if vendita.acquisto.prodotto_descrizione|length > 50 %}...{% endif %}
+                                    {{ vendita.prodotto.prodotto_descrizione[:50] }}
+                                    {% if vendita.prodotto.prodotto_descrizione|length > 50 %}...{% endif %}
                                 </div>
-                                <small class="text-muted">{{ vendita.acquisto.venditore }}</small>
+                                <small class="text-muted">{{ vendita.prodotto.acquisto.venditore }}</small>
                             {% else %}
                                 <span class="text-muted">Prodotto non trovato</span>
                             {% endif %}
@@ -60,14 +60,14 @@
                         </td>
                         <td><strong class="text-success">€ {{ "%.2f"|format(vendita.ricavo_netto) }}</strong></td>
                         <td>
-                            {% if vendita.acquisto %}
-                                {% set margine = vendita.ricavo_netto - vendita.acquisto.costo_totale %}
+                            {% if vendita.prodotto %}
+                                {% set margine = vendita.ricavo_netto - (vendita.prodotto.acquisto.costo_totale / vendita.prodotto.acquisto.numero_prodotti) %}
                                 <strong class="{% if margine >= 0 %}text-success{% else %}text-danger{% endif %}">
                                     € {{ "%.2f"|format(margine) }}
                                 </strong>
                                 <br>
                                 <small class="text-muted">
-                                    ROI: {{ "%.1f"|format((margine / vendita.acquisto.costo_totale * 100) if vendita.acquisto.costo_totale > 0 else 0) }}%
+                                    ROI: {{ "%.1f"|format((margine / (vendita.prodotto.acquisto.costo_totale / vendita.prodotto.acquisto.numero_prodotti) * 100) if vendita.prodotto.acquisto.costo_totale > 0 else 0) }}%
                                 </small>
                             {% else %}
                                 <span class="text-muted">-</span>

@@ -7,7 +7,7 @@ from sqlalchemy import text
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.database import get_db, invoicex_engine, SessionLocal
-from app.models.models import Acquisto, Vendita
+from app.models.models import Acquisto, Vendita, Prodotto
 
 def sync_vendite_from_invoicex():
     """
@@ -48,13 +48,13 @@ def sync_vendite_from_invoicex():
             print(f"Trovate {len(vendite_invoicex)} vendite da sincronizzare")
             
             for vendita_data in vendite_invoicex:
-                # Cerca l'acquisto corrispondente tramite seriale
-                acquisto = db.query(Acquisto).filter(
-                    Acquisto.seriale == vendita_data.serial_number
+                # Cerca il prodotto corrispondente tramite seriale
+                prodotto = db.query(Prodotto).filter(
+                    Prodotto.seriale == vendita_data.serial_number
                 ).first()
                 
-                if not acquisto:
-                    print(f"Acquisto non trovato per seriale: {vendita_data.serial_number}")
+                if not prodotto:
+                    print(f"Prodotto non trovato per seriale: {vendita_data.serial_number}")
                     continue
                 
                 # Verifica se la vendita è già stata sincronizzata

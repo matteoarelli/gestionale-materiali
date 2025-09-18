@@ -145,7 +145,14 @@
                             {% for acquisto in ultimi_acquisti[:5] %}
                             <tr>
                                 <td>
-                                    <small>{{ acquisto.prodotto_descrizione[:30] }}...</small>
+                                    {% if acquisto.prodotti %}
+                                        <small>{{ acquisto.prodotti[0].prodotto_descrizione[:30] }}...</small>
+                                        {% if acquisto.numero_prodotti > 1 %}
+                                            <br><small class="text-muted">+{{ acquisto.numero_prodotti - 1 }} altri</small>
+                                        {% endif %}
+                                    {% else %}
+                                        <small class="text-muted">Nessun prodotto</small>
+                                    {% endif %}
                                 </td>
                                 <td>€ {{ "%.2f"|format(acquisto.costo_totale) }}</td>
                                 <td><small>{{ acquisto.created_at.strftime('%d/%m/%Y') }}</small></td>
