@@ -3,7 +3,7 @@ from fastapi import FastAPI, Depends, HTTPException, Request, Form
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from typing import List, Optional
 import uvicorn
 from datetime import datetime, date
@@ -23,7 +23,6 @@ app = FastAPI(
 )
 
 # Mount static files (solo se la cartella esiste)
-import os
 static_dir = "app/static"
 if os.path.exists(static_dir):
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
@@ -186,10 +185,199 @@ async def crea_acquisto(request: Request, db: Session = Depends(get_db)):
     
     return RedirectResponse(url="/acquisti", status_code=303)
 
+@app.get("/acquisti/{acquisto_id}/seriali", response_class=HTMLResponse)
+async def inserisci_seriali_form(acquisto_id: int, request: Request, db: Session = Depends(get_db)):
+    """Form per inserire seriali mancanti"""
+    print(f"DEBUG: Accesso a /acquisti/{acquisto_id}/seriali")  # Debug log
+    
+    acquisto = db.query(Acquisto).options(joinedload(Acquisto.prodotti)).filter(Acquisto.id == acquisto_id).first()
+    if not acquisto:
+        print(f"DEBUG: Acquisto {acquisto_id} non trovato")  # Debug log
+        raise HTTPException(status_code=404, detail="Acquisto non trovato")
+    
+    print(f"DEBUG: Acquisto trovato: {acquisto.id_acquisto_univoco}")  # Debug log
+    
+    return templates.TemplateResponse("inserisci_seriali.html", {
+        "request": request,
+        "acquisto": acquisto
+    })
+
+@app.post("/acquisti/{acquisto_id}/seriali")
+async def salva_seriali(acquisto_id: int, request: Request, db: Session = Depends(get_db)):
+    """Salva i seriali inseriti"""
+    
+    acquisto = db.query(Acquisto).filter(Acquisto.id == acquisto_id).first()
+    if not acquisto:
+        raise HTTPException(status_code=404, detail="Acquisto non trovato")
+    
+    form_data = await request.form()
+    
+    # Raccogli i dati dei seriali
+    prodotti_data = {}
+    for key, value in form_data.items():
+        if key.startswith('prodotti[') and value.strip():
+            import re
+            match = re.match(r'prodotti\[(\d+)\]\[(\w+)\]', key)
+            if match:
+                index = int(match.group(1))
+                field = match.group(2)
+                
+                if index not in prodotti_data:
+                    prodotti_data[index] = {}
+                prodotti_data[index][field] = value.strip()
+    
+    # Aggiorna i seriali
+    seriali_inseriti = 0
+    for index, prodotto_info in prodotti_data.items():
+        prodotto_id = prodotto_info.get('id')
+        nuovo_seriale = prodotto_info.get('seriale', '').strip()
+        
+        if not prodotto_id or not nuovo_seriale:
+            continue
+            
+        # Verifica che il seriale non esista già
+        if db.query(Prodotto).filter(Prodotto.seriale == nuovo_seriale).first():
+            raise HTTPException(status_code=400, detail=f"Seriale {nuovo_seriale} già esistente")
+        
+        # Aggiorna il prodotto
+        prodotto = db.query(Prodotto).filter(Prodotto.id == int(prodotto_id)).first()
+        if prodotto and not prodotto.seriale:  # Solo se non ha già un seriale
+            prodotto.seriale = nuovo_seriale
+            seriali_inseriti += 1
+    
+    db.commit()
+    
+    # Redirect con messaggio di successo
+    if seriali_inseriti > 0:
+        return RedirectResponse(url="/acquisti?seriali_inserted=1", status_code=303)
+    else:
+        return RedirectResponse(url="/acquisti", status_code=303)
+
+@app.get("/acquisti/{acquisto_id}/modifica", response_class=HTMLResponse)
+async def modifica_acquisto_form(acquisto_id: int, request: Request, db: Session = Depends(get_db)):
+    """Form per modificare un acquisto"""
+    acquisto = db.query(Acquisto).options(joinedload(Acquisto.prodotti)).filter(Acquisto.id == acquisto_id).first()
+    if not acquisto:
+        raise HTTPException(status_code=404, detail="Acquisto non trovato")
+    
+    return templates.TemplateResponse("modifica_acquisto.html", {
+        "request": request,
+        "acquisto": acquisto
+    })
+
+@app.post("/acquisti/{acquisto_id}/modifica")
+async def salva_modifica_acquisto(acquisto_id: int, request: Request, db: Session = Depends(get_db)):
+    """Salva le modifiche di un acquisto"""
+    
+    acquisto = db.query(Acquisto).filter(Acquisto.id == acquisto_id).first()
+    if not acquisto:
+        raise HTTPException(status_code=404, detail="Acquisto non trovato")
+    
+    form_data = await request.form()
+    
+    # Aggiorna dati generali acquisto
+    nuovo_id = form_data.get("id_acquisto_univoco", "").strip()
+    if nuovo_id != acquisto.id_acquisto_univoco:
+        # Verifica che il nuovo ID non esista già
+        if db.query(Acquisto).filter(Acquisto.id_acquisto_univoco == nuovo_id, Acquisto.id != acquisto_id).first():
+            raise HTTPException(status_code=400, detail="ID acquisto già esistente")
+        acquisto.id_acquisto_univoco = nuovo_id
+    
+    acquisto.dove_acquistato = form_data.get("dove_acquistato", "").strip()
+    acquisto.venditore = form_data.get("venditore", "").strip()
+    acquisto.costo_acquisto = float(form_data.get("costo_acquisto", 0))
+    acquisto.costi_accessori = float(form_data.get("costi_accessori", 0))
+    acquisto.note = form_data.get("note", "").strip() or None
+    
+    # Gestisci date
+    data_pagamento = form_data.get("data_pagamento", "").strip()
+    if data_pagamento:
+        try:
+            acquisto.data_pagamento = datetime.strptime(data_pagamento, "%Y-%m-%d").date()
+        except:
+            pass
+    else:
+        acquisto.data_pagamento = None
+        
+    data_consegna = form_data.get("data_consegna", "").strip()
+    if data_consegna:
+        try:
+            acquisto.data_consegna = datetime.strptime(data_consegna, "%Y-%m-%d").date()
+        except:
+            pass
+    else:
+        acquisto.data_consegna = None
+    
+    # Gestisci prodotti
+    prodotti_data = {}
+    prodotti_da_eliminare = []
+    
+    # Raccogli tutti i prodotti esistenti per vedere quali eliminare
+    prodotti_esistenti = {p.id: p for p in acquisto.prodotti}
+    
+    for key, value in form_data.items():
+        if key.startswith('prodotti[') and value.strip():
+            import re
+            match = re.match(r'prodotti\[(\d+)\]\[(\w+)\]', key)
+            if match:
+                index = int(match.group(1))
+                field = match.group(2)
+                
+                if index not in prodotti_data:
+                    prodotti_data[index] = {}
+                prodotti_data[index][field] = value.strip()
+    
+    # Aggiorna/crea prodotti
+    prodotti_modificati = set()
+    
+    for index, prodotto_info in prodotti_data.items():
+        prodotto_id = prodotto_info.get('id')
+        seriale = prodotto_info.get('seriale', '').strip()
+        descrizione = prodotto_info.get('descrizione', '').strip()
+        note_prodotto = prodotto_info.get('note', '').strip()
+        
+        if not descrizione:
+            continue
+        
+        if prodotto_id and prodotto_id.isdigit():
+            # Prodotto esistente - aggiorna
+            prodotto_id = int(prodotto_id)
+            prodotto = db.query(Prodotto).filter(Prodotto.id == prodotto_id).first()
+            if prodotto and not prodotto.venduto:  # Non modificare se già venduto
+                # Verifica seriale univoco (escluso questo prodotto)
+                if seriale and db.query(Prodotto).filter(Prodotto.seriale == seriale, Prodotto.id != prodotto_id).first():
+                    raise HTTPException(status_code=400, detail=f"Seriale {seriale} già esistente")
+                
+                prodotto.seriale = seriale if seriale else None
+                prodotto.prodotto_descrizione = descrizione
+                prodotto.note_prodotto = note_prodotto if note_prodotto else None
+                prodotti_modificati.add(prodotto_id)
+        else:
+            # Nuovo prodotto
+            if seriale and db.query(Prodotto).filter(Prodotto.seriale == seriale).first():
+                raise HTTPException(status_code=400, detail=f"Seriale {seriale} già esistente")
+            
+            nuovo_prodotto = Prodotto(
+                acquisto_id=acquisto.id,
+                seriale=seriale if seriale else None,
+                prodotto_descrizione=descrizione,
+                note_prodotto=note_prodotto if note_prodotto else None
+            )
+            db.add(nuovo_prodotto)
+    
+    # Elimina prodotti non più presenti (solo se non venduti)
+    for prodotto_id, prodotto in prodotti_esistenti.items():
+        if prodotto_id not in prodotti_modificati and not prodotto.venduto:
+            db.delete(prodotto)
+    
+    db.commit()
+    
+    return RedirectResponse(url="/acquisti", status_code=303)
+
 @app.get("/vendite", response_class=HTMLResponse)
 async def lista_vendite(request: Request, db: Session = Depends(get_db)):
     """Pagina lista vendite"""
-    vendite = db.query(Vendita).order_by(Vendita.created_at.desc()).all()
+    vendite = db.query(Vendita).options(joinedload(Vendita.prodotto)).order_by(Vendita.created_at.desc()).all()
     return templates.TemplateResponse("vendite.html", {
         "request": request,
         "vendite": vendite
@@ -199,8 +387,6 @@ async def lista_vendite(request: Request, db: Session = Depends(get_db)):
 async def get_acquisto_dettaglio(acquisto_id: int, db: Session = Depends(get_db)):
     """API per ottenere dettagli completi di un acquisto"""
     # Carica l'acquisto con i prodotti usando joinedload
-    from sqlalchemy.orm import joinedload
-    
     acquisto = db.query(Acquisto).options(joinedload(Acquisto.prodotti)).filter(Acquisto.id == acquisto_id).first()
     if not acquisto:
         raise HTTPException(status_code=404, detail="Acquisto non trovato")
@@ -257,7 +443,7 @@ async def segna_acquisto_arrivato(acquisto_id: int, db: Session = Depends(get_db
 @app.delete("/acquisti/{acquisto_id}")
 async def elimina_acquisto(acquisto_id: int, db: Session = Depends(get_db)):
     """Elimina un acquisto e tutti i suoi prodotti"""
-    acquisto = db.query(Acquisto).filter(Acquisto.id == acquisto_id).first()
+    acquisto = db.query(Acquisto).options(joinedload(Acquisto.prodotti)).filter(Acquisto.id == acquisto_id).first()
     if not acquisto:
         raise HTTPException(status_code=404, detail="Acquisto non trovato")
     
@@ -277,17 +463,15 @@ async def elimina_acquisto(acquisto_id: int, db: Session = Depends(get_db)):
     
     return {"message": "Acquisto eliminato con successo"}
 
-@app.get("/acquisti/{acquisto_id}/modifica", response_class=HTMLResponse)
-async def modifica_acquisto_form(acquisto_id: int, request: Request, db: Session = Depends(get_db)):
-    """Form per modificare un acquisto"""
-    acquisto = db.query(Acquisto).filter(Acquisto.id == acquisto_id).first()
-    if not acquisto:
-        raise HTTPException(status_code=404, detail="Acquisto non trovato")
-    
-    return templates.TemplateResponse("modifica_acquisto.html", {
-        "request": request,
-        "acquisto": acquisto
-    })
+@app.get("/health")
+async def health_check():
+    """Health check per Railway"""
+    return {"status": "healthy", "timestamp": datetime.now().isoformat()}
+
+# Aggiungi questo route subito dopo @app.get("/")
+@app.get("/test-simple")
+async def test_simple():
+    return {"message": "Route semplice funziona", "test": "ok"}
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
