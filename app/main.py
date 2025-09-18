@@ -95,19 +95,20 @@ async def nuovo_acquisto_form(request: Request):
     })
 
 @app.post("/acquisti/nuovo")
-async def crea_acquisto(
-    request: Request,
-    id_acquisto_univoco: str = Form(...),
-    dove_acquistato: str = Form(...),
-    venditore: str = Form(...),
-    costo_acquisto: float = Form(...),
-    costi_accessori: float = Form(0.0),
-    data_pagamento: Optional[str] = Form(None),
-    data_consegna: Optional[str] = Form(None),
-    note: Optional[str] = Form(None),
-    db: Session = Depends(get_db)
-):
+async def crea_acquisto(request: Request, db: Session = Depends(get_db)):
     """Crea nuovo acquisto con multiprodotti"""
+    
+    form_data = await request.form()
+    
+    # Dati generali acquisto
+    id_acquisto_univoco = form_data.get("id_acquisto_univoco", "").strip()
+    dove_acquistato = form_data.get("dove_acquistato", "").strip()
+    venditore = form_data.get("venditore", "").strip()
+    costo_acquisto = float(form_data.get("costo_acquisto", 0))
+    costi_accessori = float(form_data.get("costi_accessori", 0))
+    data_pagamento = form_data.get("data_pagamento", "").strip()
+    data_consegna = form_data.get("data_consegna", "").strip()
+    note = form_data.get("note", "").strip()
     
     # Verifica duplicati
     if db.query(Acquisto).filter(Acquisto.id_acquisto_univoco == id_acquisto_univoco).first():
@@ -118,9 +119,16 @@ async def crea_acquisto(
     data_cons = None
     
     if data_pagamento:
-        data_pag = datetime.strptime(data_pagamento, "%Y-%m-%d").date()
+        try:
+            data_pag = datetime.strptime(data_pagamento, "%Y-%m-%d").date()
+        except:
+            pass
+            
     if data_consegna:
-        data_cons = datetime.strptime(data_consegna, "%Y-%m-%d").date()
+        try:
+            data_cons = datetime.strptime(data_consegna, "%Y-%m-%d").date()
+        except:
+            pass
     
     # Crea l'acquisto
     nuovo_acquisto = Acquisto(
@@ -131,19 +139,16 @@ async def crea_acquisto(
         costi_accessori=costi_accessori,
         data_pagamento=data_pag,
         data_consegna=data_cons,
-        note=note
+        note=note if note else None
     )
     
     db.add(nuovo_acquisto)
     db.flush()  # Per ottenere l'ID
     
-    # Gestisci i prodotti dal form
-    form_data = await request.form()
-    
     # Estrai i dati dei prodotti
     prodotti_data = {}
     for key, value in form_data.items():
-        if key.startswith('prodotti['):
+        if key.startswith('prodotti[') and value.strip():
             # Es: prodotti[0][seriale] -> index=0, field=seriale
             import re
             match = re.match(r'prodotti\[(\d+)\]\[(\w+)\]', key)
@@ -153,7 +158,7 @@ async def crea_acquisto(
                 
                 if index not in prodotti_data:
                     prodotti_data[index] = {}
-                prodotti_data[index][field] = value
+                prodotti_data[index][field] = value.strip()
     
     # Crea i prodotti
     for index, prodotto_info in prodotti_data.items():

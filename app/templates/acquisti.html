@@ -22,8 +22,7 @@
                 <thead class="table-dark">
                     <tr>
                         <th>ID Acquisto</th>
-                        <th>Prodotto</th>
-                        <th>Seriale</th>
+                        <th>Prodotti</th>
                         <th>Venditore</th>
                         <th>Costo Totale</th>
                         <th>Data Acquisto</th>
@@ -40,13 +39,24 @@
                             <small class="text-muted">{{ acquisto.dove_acquistato }}</small>
                         </td>
                         <td>
-                            <div style="max-width: 200px;">
-                                {{ acquisto.prodotto_descrizione[:50] }}
-                                {% if acquisto.prodotto_descrizione|length > 50 %}...{% endif %}
+                            <div>
+                                <span class="badge bg-info">{{ acquisto.numero_prodotti }} prodotti</span>
                             </div>
-                        </td>
-                        <td>
-                            <code>{{ acquisto.seriale }}</code>
+                            {% if acquisto.prodotti %}
+                                {% for prodotto in acquisto.prodotti[:3] %}
+                                <div class="mt-1">
+                                    <small><code>{{ prodotto.seriale }}</code></small>
+                                    <br>
+                                    <small class="text-muted">
+                                        {{ prodotto.prodotto_descrizione[:30] }}
+                                        {% if prodotto.prodotto_descrizione|length > 30 %}...{% endif %}
+                                    </small>
+                                </div>
+                                {% endfor %}
+                                {% if acquisto.numero_prodotti > 3 %}
+                                    <small class="text-muted">...e altri {{ acquisto.numero_prodotti - 3 }} prodotti</small>
+                                {% endif %}
+                            {% endif %}
                         </td>
                         <td>{{ acquisto.venditore }}</td>
                         <td>
@@ -68,19 +78,27 @@
                             {% endif %}
                         </td>
                         <td>
-                            {% if acquisto.venduto %}
+                            {% if acquisto.completamente_venduto %}
                                 <span class="badge bg-success">
-                                    <i class="bi bi-check-circle"></i> Venduto
+                                    <i class="bi bi-check-circle"></i> Tutto Venduto
                                 </span>
-                            {% else %}
+                            {% elif acquisto.prodotti_venduti > 0 %}
                                 <span class="badge bg-warning">
+                                    <i class="bi bi-clock"></i> Parziale
+                                </span>
+                                <br>
+                                <small class="text-muted">
+                                    {{ acquisto.prodotti_venduti }}/{{ acquisto.numero_prodotti }} venduti
+                                </small>
+                            {% else %}
+                                <span class="badge bg-secondary">
                                     <i class="bi bi-box-seam"></i> In Stock
                                 </span>
                             {% endif %}
                         </td>
                         <td>
-                            {% if acquisto.venduto %}
-                                {% set margine = acquisto.margine %}
+                            {% if acquisto.prodotti_venduti > 0 %}
+                                {% set margine = acquisto.margine_totale %}
                                 <strong class="{% if margine >= 0 %}text-success{% else %}text-danger{% endif %}">
                                     € {{ "%.2f"|format(margine) }}
                                 </strong>
@@ -124,16 +142,16 @@
     <div class="col-md-3">
         <div class="card text-center">
             <div class="card-body">
-                <h6 class="text-muted">Venduti</h6>
-                <h4 class="text-success">{{ acquisti|selectattr("venduto")|list|length }}</h4>
+                <h6 class="text-muted">Totale Prodotti</h6>
+                <h4 class="text-info">{{ acquisti|sum(attribute="numero_prodotti") }}</h4>
             </div>
         </div>
     </div>
     <div class="col-md-3">
         <div class="card text-center">
             <div class="card-body">
-                <h6 class="text-muted">In Stock</h6>
-                <h4 class="text-warning">{{ acquisti|rejectattr("venduto")|list|length }}</h4>
+                <h6 class="text-muted">Prodotti Venduti</h6>
+                <h4 class="text-success">{{ acquisti|sum(attribute="prodotti_venduti") }}</h4>
             </div>
         </div>
     </div>
