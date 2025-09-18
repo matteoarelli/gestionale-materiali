@@ -12,7 +12,8 @@ from app.database import get_db, engine, Base
 from app.models.models import Acquisto, Vendita, Prodotto
 from app.routers import acquisti
 
-# Crea le tabelle
+# Ricrea le tabelle (elimina e ricrea tutto)
+Base.metadata.drop_all(bind=engine)
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
