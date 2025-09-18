@@ -198,11 +198,16 @@ async def lista_vendite(request: Request, db: Session = Depends(get_db)):
 @app.get("/api/acquisti/{acquisto_id}")
 async def get_acquisto_dettaglio(acquisto_id: int, db: Session = Depends(get_db)):
     """API per ottenere dettagli completi di un acquisto"""
-    acquisto = db.query(Acquisto).filter(Acquisto.id == acquisto_id).first()
+    # Carica l'acquisto con i prodotti usando joinedload
+    from sqlalchemy.orm import joinedload
+    
+    acquisto = db.query(Acquisto).options(joinedload(Acquisto.prodotti)).filter(Acquisto.id == acquisto_id).first()
     if not acquisto:
         raise HTTPException(status_code=404, detail="Acquisto non trovato")
     
     try:
+        print(f"DEBUG API: Acquisto {acquisto.id} ha {len(acquisto.prodotti)} prodotti")  # Debug
+        
         # Forza il caricamento dei prodotti
         prodotti_list = []
         for p in acquisto.prodotti:
@@ -230,6 +235,7 @@ async def get_acquisto_dettaglio(acquisto_id: int, db: Session = Depends(get_db)
             "prodotti": prodotti_list
         }
         
+        print(f"DEBUG API: Restituisco {len(prodotti_list)} prodotti")  # Debug
         return result
         
     except Exception as e:
