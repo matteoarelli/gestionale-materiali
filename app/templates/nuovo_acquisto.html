@@ -4,7 +4,7 @@
 
 {% block content %}
 <div class="row">
-    <div class="col-md-8 mx-auto">
+    <div class="col-md-10 mx-auto">
         <div class="card">
             <div class="card-header">
                 <h5 class="mb-0">
@@ -12,68 +12,101 @@
                 </h5>
             </div>
             <div class="card-body">
-                <form method="POST" action="/acquisti/nuovo">
-                    <div class="row">
-                        <div class="col-md-6 mb-3">
-                            <label for="id_acquisto_univoco" class="form-label">ID Acquisto *</label>
-                            <input type="text" class="form-control" id="id_acquisto_univoco" 
-                                   name="id_acquisto_univoco" required>
-                            <small class="form-text text-muted">Identificativo univoco per questo acquisto</small>
+                <form method="POST" action="/acquisti/nuovo" id="acquistoForm">
+                    <!-- Dati generali acquisto -->
+                    <div class="card mb-4">
+                        <div class="card-header bg-light">
+                            <h6 class="mb-0">Dati Generali Acquisto</h6>
                         </div>
-                        <div class="col-md-6 mb-3">
-                            <label for="seriale" class="form-label">Seriale *</label>
-                            <input type="text" class="form-control" id="seriale" 
-                                   name="seriale" required>
-                            <small class="form-text text-muted">Numero seriale del prodotto</small>
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-md-4 mb-3">
+                                    <label for="id_acquisto_univoco" class="form-label">ID Acquisto *</label>
+                                    <input type="text" class="form-control" id="id_acquisto_univoco" 
+                                           name="id_acquisto_univoco" required>
+                                    <small class="form-text text-muted">Identificativo univoco per questo acquisto</small>
+                                </div>
+                                <div class="col-md-4 mb-3">
+                                    <label for="dove_acquistato" class="form-label">Dove Acquistato *</label>
+                                    <input type="text" class="form-control" id="dove_acquistato" 
+                                           name="dove_acquistato" required>
+                                    <small class="form-text text-muted">Piattaforma o negozio</small>
+                                </div>
+                                <div class="col-md-4 mb-3">
+                                    <label for="venditore" class="form-label">Venditore *</label>
+                                    <input type="text" class="form-control" id="venditore" 
+                                           name="venditore" required>
+                                </div>
+                            </div>
+                            
+                            <div class="row">
+                                <div class="col-md-3 mb-3">
+                                    <label for="costo_acquisto" class="form-label">Costo Totale Acquisto (€) *</label>
+                                    <input type="number" step="0.01" class="form-control" id="costo_acquisto" 
+                                           name="costo_acquisto" required>
+                                    <small class="form-text text-muted">Somma di tutti i prodotti</small>
+                                </div>
+                                <div class="col-md-3 mb-3">
+                                    <label for="costi_accessori" class="form-label">Costi Accessori (€)</label>
+                                    <input type="number" step="0.01" class="form-control" id="costi_accessori" 
+                                           name="costi_accessori" value="0.00">
+                                    <small class="form-text text-muted">Spedizione, commissioni, etc.</small>
+                                </div>
+                                <div class="col-md-3 mb-3">
+                                    <label for="data_pagamento" class="form-label">Data Pagamento</label>
+                                    <input type="date" class="form-control" id="data_pagamento" 
+                                           name="data_pagamento">
+                                </div>
+                                <div class="col-md-3 mb-3">
+                                    <label for="data_consegna" class="form-label">Data Consegna</label>
+                                    <input type="date" class="form-control" id="data_consegna" 
+                                           name="data_consegna">
+                                </div>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label for="note" class="form-label">Note Acquisto</label>
+                                <textarea class="form-control" id="note" name="note" rows="2"></textarea>
+                            </div>
                         </div>
                     </div>
 
-                    <div class="row">
-                        <div class="col-md-6 mb-3">
-                            <label for="dove_acquistato" class="form-label">Dove Acquistato *</label>
-                            <input type="text" class="form-control" id="dove_acquistato" 
-                                   name="dove_acquistato" required>
-                            <small class="form-text text-muted">Piattaforma o negozio di acquisto</small>
+                    <!-- Prodotti -->
+                    <div class="card mb-4">
+                        <div class="card-header bg-light d-flex justify-content-between align-items-center">
+                            <h6 class="mb-0">Prodotti nell'Acquisto</h6>
+                            <button type="button" class="btn btn-sm btn-success" onclick="aggiungiProdotto()">
+                                <i class="bi bi-plus"></i> Aggiungi Prodotto
+                            </button>
                         </div>
-                        <div class="col-md-6 mb-3">
-                            <label for="venditore" class="form-label">Venditore *</label>
-                            <input type="text" class="form-control" id="venditore" 
-                                   name="venditore" required>
-                            <small class="form-text text-muted">Nome del venditore</small>
-                        </div>
-                    </div>
-
-                    <div class="mb-3">
-                        <label for="prodotto_descrizione" class="form-label">Descrizione Prodotto *</label>
-                        <textarea class="form-control" id="prodotto_descrizione" 
-                                  name="prodotto_descrizione" rows="3" required></textarea>
-                        <small class="form-text text-muted">Descrizione completa del prodotto</small>
-                    </div>
-
-                    <div class="row">
-                        <div class="col-md-6 mb-3">
-                            <label for="costo_acquisto" class="form-label">Costo Acquisto (€) *</label>
-                            <input type="number" step="0.01" class="form-control" id="costo_acquisto" 
-                                   name="costo_acquisto" required>
-                        </div>
-                        <div class="col-md-6 mb-3">
-                            <label for="costi_accessori" class="form-label">Costi Accessori (€)</label>
-                            <input type="number" step="0.01" class="form-control" id="costi_accessori" 
-                                   name="costi_accessori" value="0.00">
-                            <small class="form-text text-muted">Spedizione, commissioni, etc.</small>
-                        </div>
-                    </div>
-
-                    <div class="row">
-                        <div class="col-md-6 mb-3">
-                            <label for="data_pagamento" class="form-label">Data Pagamento</label>
-                            <input type="date" class="form-control" id="data_pagamento" 
-                                   name="data_pagamento">
-                        </div>
-                        <div class="col-md-6 mb-3">
-                            <label for="data_consegna" class="form-label">Data Consegna</label>
-                            <input type="date" class="form-control" id="data_consegna" 
-                                   name="data_consegna">
+                        <div class="card-body" id="prodottiContainer">
+                            <!-- Il primo prodotto -->
+                            <div class="prodotto-item border rounded p-3 mb-3" data-index="0">
+                                <div class="d-flex justify-content-between align-items-center mb-3">
+                                    <h6 class="mb-0">Prodotto 1</h6>
+                                    <button type="button" class="btn btn-sm btn-outline-danger" onclick="rimuoviProdotto(0)" style="display: none;">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </div>
+                                
+                                <div class="row">
+                                    <div class="col-md-4 mb-3">
+                                        <label class="form-label">Seriale *</label>
+                                        <input type="text" class="form-control" name="prodotti[0][seriale]" required>
+                                    </div>
+                                    <div class="col-md-8 mb-3">
+                                        <label class="form-label">Descrizione Prodotto *</label>
+                                        <input type="text" class="form-control" name="prodotti[0][descrizione]" required>
+                                    </div>
+                                </div>
+                                
+                                <div class="row">
+                                    <div class="col-md-12 mb-3">
+                                        <label class="form-label">Note Prodotto</label>
+                                        <textarea class="form-control" name="prodotti[0][note]" rows="2"></textarea>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
 
@@ -93,18 +126,81 @@
 
 {% block scripts %}
 <script>
-    // Auto-genera ID acquisto basato su timestamp se vuoto
-    document.getElementById('id_acquisto_univoco').addEventListener('focus', function() {
-        if (this.value === '') {
-            const now = new Date();
-            const timestamp = now.getFullYear().toString() + 
-                            (now.getMonth() + 1).toString().padStart(2, '0') + 
-                            now.getDate().toString().padStart(2, '0') + '_' +
-                            now.getHours().toString().padStart(2, '0') + 
-                            now.getMinutes().toString().padStart(2, '0');
-            this.value = 'ACQ_' + timestamp;
-        }
+let prodottoIndex = 1;
+
+// Auto-genera ID acquisto
+document.getElementById('id_acquisto_univoco').addEventListener('focus', function() {
+    if (this.value === '') {
+        const now = new Date();
+        const timestamp = now.getFullYear().toString() + 
+                        (now.getMonth() + 1).toString().padStart(2, '0') + 
+                        now.getDate().toString().padStart(2, '0') + '_' +
+                        now.getHours().toString().padStart(2, '0') + 
+                        now.getMinutes().toString().padStart(2, '0');
+        this.value = 'ACQ_' + timestamp;
+    }
+});
+
+function aggiungiProdotto() {
+    const container = document.getElementById('prodottiContainer');
+    const prodottoHtml = `
+        <div class="prodotto-item border rounded p-3 mb-3" data-index="${prodottoIndex}">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h6 class="mb-0">Prodotto ${prodottoIndex + 1}</h6>
+                <button type="button" class="btn btn-sm btn-outline-danger" onclick="rimuoviProdotto(${prodottoIndex})">
+                    <i class="bi bi-trash"></i>
+                </button>
+            </div>
+            
+            <div class="row">
+                <div class="col-md-4 mb-3">
+                    <label class="form-label">Seriale *</label>
+                    <input type="text" class="form-control" name="prodotti[${prodottoIndex}][seriale]" required>
+                </div>
+                <div class="col-md-8 mb-3">
+                    <label class="form-label">Descrizione Prodotto *</label>
+                    <input type="text" class="form-control" name="prodotti[${prodottoIndex}][descrizione]" required>
+                </div>
+            </div>
+            
+            <div class="row">
+                <div class="col-md-12 mb-3">
+                    <label class="form-label">Note Prodotto</label>
+                    <textarea class="form-control" name="prodotti[${prodottoIndex}][note]" rows="2"></textarea>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    container.insertAdjacentHTML('beforeend', prodottoHtml);
+    prodottoIndex++;
+    
+    // Mostra il pulsante rimuovi del primo prodotto se ci sono più prodotti
+    if (prodottoIndex > 1) {
+        document.querySelector('[data-index="0"] .btn-outline-danger').style.display = 'inline-block';
+    }
+}
+
+function rimuoviProdotto(index) {
+    const prodotto = document.querySelector(`[data-index="${index}"]`);
+    prodotto.remove();
+    
+    // Nascondi il pulsante rimuovi del primo prodotto se è rimasto solo quello
+    const prodotti = document.querySelectorAll('.prodotto-item');
+    if (prodotti.length === 1) {
+        document.querySelector('[data-index="0"] .btn-outline-danger').style.display = 'none';
+    }
+    
+    // Rinumera i prodotti
+    rinumeraProdotti();
+}
+
+function rinumeraProdotti() {
+    const prodotti = document.querySelectorAll('.prodotto-item');
+    prodotti.forEach((prodotto, index) => {
+        prodotto.querySelector('h6').textContent = `Prodotto ${index + 1}`;
     });
+}
 </script>
 {% endblock %}
 {% endblock %}

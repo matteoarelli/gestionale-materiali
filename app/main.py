@@ -9,7 +9,7 @@ import uvicorn
 from datetime import datetime, date
 
 from app.database import get_db, engine, Base
-from app.models.models import Acquisto, Vendita
+from app.models.models import Acquisto, Vendita, Prodotto
 from app.routers import acquisti
 
 # Crea le tabelle
@@ -39,17 +39,19 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
     
     # Statistiche generali
     total_acquisti = db.query(Acquisto).count()
-    acquisti_venduti = db.query(Acquisto).filter(Acquisto.vendite.any()).count()
-    acquisti_in_stock = total_acquisti - acquisti_venduti
+    total_prodotti = db.query(Prodotto).count()
+    prodotti_venduti = db.query(Prodotto).filter(Prodotto.vendite.any()).count()
+    prodotti_in_stock = total_prodotti - prodotti_venduti
     
     # Calcoli finanziari
-    total_investito = db.query(Acquisto).all()
-    investimento_totale = sum(a.costo_totale for a in total_investito)
+    acquisti = db.query(Acquisto).all()
+    investimento_totale = sum(a.costo_totale for a in acquisti)
     
     vendite_totali = db.query(Vendita).all()
     ricavi_totali = sum(v.ricavo_netto for v in vendite_totali)
     
-    margine_totale = ricavi_totali - sum(a.costo_totale for a in total_investito if a.venduto)
+    # Margine totale
+    margine_totale = ricavi_totali - investimento_totale
     
     # Ultimi acquisti
     ultimi_acquisti = db.query(Acquisto).order_by(Acquisto.created_at.desc()).limit(10).all()
@@ -59,8 +61,9 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
     
     stats = {
         "total_acquisti": total_acquisti,
-        "acquisti_venduti": acquisti_venduti,
-        "acquisti_in_stock": acquisti_in_stock,
+        "total_prodotti": total_prodotti,
+        "acquisti_venduti": prodotti_venduti,
+        "acquisti_in_stock": prodotti_in_stock,
         "investimento_totale": round(investimento_totale, 2),
         "ricavi_totali": round(ricavi_totali, 2),
         "margine_totale": round(margine_totale, 2),
@@ -96,22 +99,18 @@ async def crea_acquisto(
     id_acquisto_univoco: str = Form(...),
     dove_acquistato: str = Form(...),
     venditore: str = Form(...),
-    prodotto_descrizione: str = Form(...),
-    seriale: str = Form(...),
     costo_acquisto: float = Form(...),
     costi_accessori: float = Form(0.0),
     data_pagamento: Optional[str] = Form(None),
     data_consegna: Optional[str] = Form(None),
+    note: Optional[str] = Form(None),
     db: Session = Depends(get_db)
 ):
-    """Crea nuovo acquisto"""
+    """Crea nuovo acquisto con multiprodotti"""
     
     # Verifica duplicati
     if db.query(Acquisto).filter(Acquisto.id_acquisto_univoco == id_acquisto_univoco).first():
         raise HTTPException(status_code=400, detail="ID acquisto già esistente")
-    
-    if db.query(Acquisto).filter(Acquisto.seriale == seriale).first():
-        raise HTTPException(status_code=400, detail="Seriale già esistente")
     
     # Converti date
     data_pag = None
@@ -122,19 +121,61 @@ async def crea_acquisto(
     if data_consegna:
         data_cons = datetime.strptime(data_consegna, "%Y-%m-%d").date()
     
+    # Crea l'acquisto
     nuovo_acquisto = Acquisto(
         id_acquisto_univoco=id_acquisto_univoco,
         dove_acquistato=dove_acquistato,
         venditore=venditore,
-        prodotto_descrizione=prodotto_descrizione,
-        seriale=seriale,
         costo_acquisto=costo_acquisto,
         costi_accessori=costi_accessori,
         data_pagamento=data_pag,
-        data_consegna=data_cons
+        data_consegna=data_cons,
+        note=note
     )
     
     db.add(nuovo_acquisto)
+    db.flush()  # Per ottenere l'ID
+    
+    # Gestisci i prodotti dal form
+    form_data = await request.form()
+    
+    # Estrai i dati dei prodotti
+    prodotti_data = {}
+    for key, value in form_data.items():
+        if key.startswith('prodotti['):
+            # Es: prodotti[0][seriale] -> index=0, field=seriale
+            import re
+            match = re.match(r'prodotti\[(\d+)\]\[(\w+)\]', key)
+            if match:
+                index = int(match.group(1))
+                field = match.group(2)
+                
+                if index not in prodotti_data:
+                    prodotti_data[index] = {}
+                prodotti_data[index][field] = value
+    
+    # Crea i prodotti
+    for index, prodotto_info in prodotti_data.items():
+        seriale = prodotto_info.get('seriale', '').strip()
+        descrizione = prodotto_info.get('descrizione', '').strip()
+        note_prodotto = prodotto_info.get('note', '').strip()
+        
+        if not seriale or not descrizione:
+            continue
+            
+        # Verifica seriale univoco
+        if db.query(Prodotto).filter(Prodotto.seriale == seriale).first():
+            raise HTTPException(status_code=400, detail=f"Seriale {seriale} già esistente")
+        
+        nuovo_prodotto = Prodotto(
+            acquisto_id=nuovo_acquisto.id,
+            seriale=seriale,
+            prodotto_descrizione=descrizione,
+            note_prodotto=note_prodotto if note_prodotto else None
+        )
+        
+        db.add(nuovo_prodotto)
+    
     db.commit()
     
     return RedirectResponse(url="/acquisti", status_code=303)
