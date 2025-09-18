@@ -1,0 +1,190 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Gestionale Materiali{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col">
+        <h1><i class="bi bi-speedometer2"></i> Dashboard</h1>
+        <p class="text-muted">Panoramica generale del business</p>
+    </div>
+</div>
+
+<!-- Statistiche principali -->
+<div class="row mb-4">
+    <div class="col-md-3">
+        <div class="card bg-primary text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h6 class="card-title">Totale Acquisti</h6>
+                        <h3>{{ stats.total_acquisti }}</h3>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="bi bi-cart-plus fs-1"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card bg-success text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h6 class="card-title">Venduti</h6>
+                        <h3>{{ stats.acquisti_venduti }}</h3>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="bi bi-cart-check fs-1"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card bg-warning text-dark">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h6 class="card-title">In Stock</h6>
+                        <h3>{{ stats.acquisti_in_stock }}</h3>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="bi bi-box-seam fs-1"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card bg-info text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h6 class="card-title">ROI</h6>
+                        <h3>{{ stats.roi_percentuale }}%</h3>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="bi bi-graph-up fs-1"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Statistiche finanziarie -->
+<div class="row mb-4">
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-body">
+                <h6 class="card-title text-muted">Investimento Totale</h6>
+                <h4 class="text-danger">€ {{ "%.2f"|format(stats.investimento_totale) }}</h4>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-body">
+                <h6 class="card-title text-muted">Ricavi Totali</h6>
+                <h4 class="text-success">€ {{ "%.2f"|format(stats.ricavi_totali) }}</h4>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-body">
+                <h6 class="card-title text-muted">Margine Totale</h6>
+                <h4 class="{% if stats.margine_totale >= 0 %}text-success{% else %}text-danger{% endif %}">
+                    € {{ "%.2f"|format(stats.margine_totale) }}
+                </h4>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Azioni rapide -->
+<div class="row mb-4">
+    <div class="col">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">Azioni Rapide</h5>
+                <a href="/acquisti/nuovo" class="btn btn-primary me-2">
+                    <i class="bi bi-plus-circle"></i> Nuovo Acquisto
+                </a>
+                <a href="/acquisti" class="btn btn-outline-primary me-2">
+                    <i class="bi bi-list"></i> Tutti gli Acquisti
+                </a>
+                <a href="/vendite" class="btn btn-outline-success">
+                    <i class="bi bi-graph-up"></i> Tutte le Vendite
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Ultimi acquisti e vendite -->
+<div class="row">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h6 class="mb-0">Ultimi Acquisti</h6>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>Prodotto</th>
+                                <th>Costo</th>
+                                <th>Data</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for acquisto in ultimi_acquisti[:5] %}
+                            <tr>
+                                <td>
+                                    <small>{{ acquisto.prodotto_descrizione[:30] }}...</small>
+                                </td>
+                                <td>€ {{ "%.2f"|format(acquisto.costo_totale) }}</td>
+                                <td><small>{{ acquisto.created_at.strftime('%d/%m/%Y') }}</small></td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h6 class="mb-0">Ultime Vendite</h6>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>Seriale</th>
+                                <th>Ricavo</th>
+                                <th>Canale</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for vendita in ultime_vendite[:5] %}
+                            <tr>
+                                <td><small>{{ vendita.seriale }}</small></td>
+                                <td>€ {{ "%.2f"|format(vendita.ricavo_netto) }}</td>
+                                <td><small>{{ vendita.canale_vendita }}</small></td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
