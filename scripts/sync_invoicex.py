@@ -68,7 +68,7 @@ def sync_vendite_from_invoicex():
                 
                 # Crea nuova vendita
                 nuova_vendita = Vendita(
-                    seriale=vendita_data.serial_number,
+                    prodotto_id=prodotto.id,  # Usa l'ID del prodotto
                     data_vendita=vendita_data.sale_date,
                     canale_vendita=vendita_data.sale_channel or 'unknown',
                     prezzo_vendita=float(vendita_data.sale_price),

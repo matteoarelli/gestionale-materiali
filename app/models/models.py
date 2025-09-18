@@ -79,7 +79,7 @@ class Vendita(Base):
     __tablename__ = "vendite"
     
     id = Column(Integer, primary_key=True, index=True)
-    seriale = Column(String(100), ForeignKey("prodotti.seriale"), nullable=False, index=True)
+    prodotto_id = Column(Integer, ForeignKey("prodotti.id"), nullable=False, index=True)  # FK verso prodotto.id
     data_vendita = Column(Date, nullable=False)
     canale_vendita = Column(String(50), nullable=False)  # ebay, backmarket, refurbed, sede, etc.
     prezzo_vendita = Column(DECIMAL(10, 2), nullable=False)
@@ -96,3 +96,8 @@ class Vendita(Base):
     @property
     def ricavo_netto(self):
         return float(self.prezzo_vendita) - float(self.commissioni or 0)
+    
+    @property
+    def seriale(self):
+        """Proprietà di comodo per accedere al seriale del prodotto"""
+        return self.prodotto.seriale if self.prodotto else None
