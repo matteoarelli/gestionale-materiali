@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+
+{% block title %}Vendite - Gestionale Materiali{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h1><i class="bi bi-cart-check"></i> Vendite</h1>
+        <p class="text-muted">Tutte le vendite registrate (sincronizzate da InvoiceX)</p>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-striped table-hover">
+                <thead class="table-dark">
+                    <tr>
+                        <th>Seriale</th>
+                        <th>Prodotto</th>
+                        <th>Data Vendita</th>
+                        <th>Canale</th>
+                        <th>Prezzo</th>
+                        <th>Commissioni</th>
+                        <th>Ricavo Netto</th>
+                        <th>Margine</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for vendita in vendite %}
+                    <tr>
+                        <td>
+                            <code>{{ vendita.seriale }}</code>
+                            {% if vendita.synced_from_invoicex %}
+                                <br><small class="text-success"><i class="bi bi-check-circle"></i> InvoiceX</small>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if vendita.acquisto %}
+                                <div style="max-width: 200px;">
+                                    {{ vendita.acquisto.prodotto_descrizione[:50] }}
+                                    {% if vendita.acquisto.prodotto_descrizione|length > 50 %}...{% endif %}
+                                </div>
+                                <small class="text-muted">{{ vendita.acquisto.venditore }}</small>
+                            {% else %}
+                                <span class="text-muted">Prodotto non trovato</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ vendita.data_vendita.strftime('%d/%m/%Y') }}</td>
+                        <td>
+                            <span class="badge bg-primary">{{ vendita.canale_vendita }}</span>
+                        </td>
+                        <td><strong>€ {{ "%.2f"|format(vendita.prezzo_vendita) }}</strong></td>
+                        <td>
+                            {% if vendita.commissioni > 0 %}
+                                <span class="text-danger">€ {{ "%.2f"|format(vendita.commissioni) }}</span>
+                            {% else %}
+                                <span class="text-muted">€ 0.00</span>
+                            {% endif %}
+                        </td>
+                        <td><strong class="text-success">€ {{ "%.2f"|format(vendita.ricavo_netto) }}</strong></td>
+                        <td>
+                            {% if vendita.acquisto %}
+                                {% set margine = vendita.ricavo_netto - vendita.acquisto.costo_totale %}
+                                <strong class="{% if margine >= 0 %}text-success{% else %}text-danger{% endif %}">
+                                    € {{ "%.2f"|format(margine) }}
+                                </strong>
+                                <br>
+                                <small class="text-muted">
+                                    ROI: {{ "%.1f"|format((margine / vendita.acquisto.costo_totale * 100) if vendita.acquisto.costo_totale > 0 else 0) }}%
+                                </small>
+                            {% else %}
+                                <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        {% if not vendite %}
+        <div class="text-center py-5">
+            <i class="bi bi-cart-check fs-1 text-muted"></i>
+            <p class="text-muted mt-3">Nessuna vendita registrata ancora</p>
+            <small class="text-muted">Le vendite verranno sincronizzate automaticamente da InvoiceX</small>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Statistiche vendite -->
+{% if vendite %}
+<div class="row mt-4">
+    <div class="col-md-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <h6 class="text-muted">Totale Vendite</h6>
+                <h4>{{ vendite|length }}</h4>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <h6 class="text-muted">Ricavi Totali</h6>
+                <h4 class="text-success">€ {{ "%.2f"|format(vendite|sum(attribute="ricavo_netto")) }}</h4>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <h6 class="text-muted">Commissioni Totali</h6>
+                <h4 class="text-warning">€ {{ "%.2f"|format(vendite|sum(attribute="commissioni")) }}</h4>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-center">
+            <div class="card-body">
+                <h6 class="text-muted">Ricavo Medio</h6>
+                <h4 class="text-info">€ {{ "%.2f"|format((vendite|sum(attribute="ricavo_netto")) / vendite|length) }}</h4>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
