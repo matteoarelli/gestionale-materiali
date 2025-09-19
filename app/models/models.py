@@ -69,6 +69,26 @@ class Acquisto(Base):
         return (self.margine_totale / self.costo_totale) * 100
     
     @property
+    def giorni_attesa(self):
+        """Giorni di attesa se l'acquisto non è ancora arrivato"""
+        if self.data_consegna:
+            return None  # Se è già arrivato, non c'è attesa
+        
+        # Calcola giorni dall'acquisto/pagamento a oggi
+        if self.data_pagamento:
+            return (date.today() - self.data_pagamento).days
+        else:
+            # Se non c'è data pagamento, usa la data di creazione
+            return (date.today() - self.created_at.date()).days
+    
+    @property
+    def giorni_stock(self):
+        """Giorni in stock dall'arrivo (se arrivato)"""
+        if not self.data_consegna:
+            return None
+        return (date.today() - self.data_consegna).days
+    
+    @property
     def giorni_stock_medio(self):
         """Giorni medi in stock per prodotti venduti"""
         if not self.data_consegna:
@@ -157,7 +177,7 @@ class Acquisto(Base):
         
         # Non arrivato
         if not self.data_consegna:
-            giorni_attesa = (date.today() - (self.data_pagamento or self.created_at.date())).days
+            giorni_attesa = self.giorni_attesa or 0
             if giorni_attesa > 21:
                 score += 40
             elif giorni_attesa > 14:
@@ -170,12 +190,10 @@ class Acquisto(Base):
             score += min(30, self.prodotti_senza_seriali * 10)
         
         # Vendite lente
-        if self.data_consegna:
-            giorni_stock = (date.today() - self.data_consegna).days
-            if giorni_stock > 30 and not self.completamente_venduto:
-                prodotti_non_venduti = len([p for p in self.prodotti if not p.vendite])
-                if prodotti_non_venduti > 0:
-                    score += min(30, (giorni_stock - 30) // 15 * 10)
+        if self.giorni_stock and self.giorni_stock > 30 and not self.completamente_venduto:
+            prodotti_non_venduti = len([p for p in self.prodotti if not p.vendite])
+            if prodotti_non_venduti > 0:
+                score += min(30, (self.giorni_stock - 30) // 15 * 10)
         
         return min(100, score)
 
