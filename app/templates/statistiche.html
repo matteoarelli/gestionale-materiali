@@ -1,0 +1,257 @@
+{% extends "base.html" %}
+
+{% block title %}Statistiche Periodiche - Gestionale Materiali{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h1><i class="bi bi-graph-up"></i> Statistiche Periodiche</h1>
+        <p class="text-muted">Analisi performance per periodo</p>
+    </div>
+    <div>
+        <a href="/performance" class="btn btn-outline-primary me-2">
+            <i class="bi bi-speedometer"></i> Performance Acquisti
+        </a>
+        
+        <!-- Selettore periodo -->
+        <div class="btn-group" role="group">
+            <a href="/statistiche?periodo=settimana" 
+               class="btn {% if periodo_selezionato == 'settimana' %}btn-primary{% else %}btn-outline-primary{% endif %}">
+                Settimane
+            </a>
+            <a href="/statistiche?periodo=mese" 
+               class="btn {% if periodo_selezionato == 'mese' %}btn-primary{% else %}btn-outline-primary{% endif %}">
+                Mesi
+            </a>
+        </div>
+    </div>
+</div>
+
+<!-- Riepilogo generale -->
+{% if statistiche %}
+{% set total_investimento = statistiche|sum(attribute="investimento") %}
+{% set total_ricavi = statistiche|sum(attribute="ricavi") %}
+{% set total_margine = statistiche|sum(attribute="margine") %}
+{% set margine_generale = (total_margine / total_investimento * 100) if total_investimento > 0 else 0 %}
+
+<div class="row mb-4">
+    <div class="col-md-3">
+        <div class="card bg-primary text-white">
+            <div class="card-body text-center">
+                <h6>Periodi Analizzati</h6>
+                <h3>{{ statistiche|length }}</h3>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card bg-danger text-white">
+            <div class="card-body text-center">
+                <h6>Investimento Totale</h6>
+                <h3>€ {{ "%.0f"|format(total_investimento) }}</h3>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card bg-success text-white">
+            <div class="card-body text-center">
+                <h6>Ricavi Totali</h6>
+                <h3>€ {{ "%.0f"|format(total_ricavi) }}</h3>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card bg-info text-white">
+            <div class="card-body text-center">
+                <h6>Margine Generale</h6>
+                <h3>{{ "%.1f"|format(margine_generale) }}%</h3>
+                <small>€ {{ "%.0f"|format(total_margine) }}</small>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Grafico trend (semplificato con CSS) -->
+{% if statistiche|length > 1 %}
+<div class="card mb-4">
+    <div class="card-header">
+        <h6 class="mb-0">Trend Marginalità per {{ 'Settimana' if periodo_selezionato == 'settimana' else 'Mese' }}</h6>
+    </div>
+    <div class="card-body">
+        <div class="row">
+            {% for stat in statistiche[-10:] %}  <!-- Ultimi 10 periodi -->
+            <div class="col text-center">
+                <div class="mb-2">
+                    <div class="progress" style="height: 100px; transform: rotate(-90deg); width: 20px; margin: 40px auto;">
+                        <div class="progress-bar {% if stat.margine_percentuale >= 25 %}bg-success{% elif stat.margine_percentuale >= 0 %}bg-warning{% else %}bg-danger{% endif %}" 
+                             style="height: {{ ((stat.margine_percentuale + 50) / 100 * 100)|round }}%;" 
+                             title="{{ stat.margine_percentuale|round(1) }}%">
+                        </div>
+                    </div>
+                </div>
+                <small class="text-muted">{{ stat.periodo.split()[-1] if ' ' in stat.periodo else stat.periodo[-5:] }}</small>
+                <br>
+                <small class="{% if stat.margine_percentuale >= 25 %}text-success{% elif stat.margine_percentuale >= 0 %}text-warning{% else %}text-danger{% endif %}">
+                    {{ "%.1f"|format(stat.margine_percentuale) }}%
+                </small>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Tabella dettagliata -->
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0">Dettaglio per {{ 'Settimana' if periodo_selezionato == 'settimana' else 'Mese' }}</h5>
+        <span class="badge bg-secondary">{{ statistiche|length }} periodi</span>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-striped table-hover">
+                <thead class="table-dark">
+                    <tr>
+                        <th>Periodo</th>
+                        <th>Acquisti</th>
+                        <th>Investimento</th>
+                        <th>Ricavi</th>
+                        <th>Margine</th>
+                        <th>Marginalità %</th>
+                        <th>Performance</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for stat in statistiche %}
+                    <tr class="{% if stat.margine_percentuale < 25 %}table-warning{% endif %}">
+                        <td>
+                            <strong>{{ stat.periodo }}</strong>
+                        </td>
+                        <td>
+                            <span class="badge bg-info">{{ stat.count }}</span>
+                        </td>
+                        <td>
+                            <span class="text-danger">
+                                € {{ "%.2f"|format(stat.investimento) }}
+                            </span>
+                        </td>
+                        <td>
+                            <span class="text-success">
+                                € {{ "%.2f"|format(stat.ricavi) }}
+                            </span>
+                        </td>
+                        <td>
+                            <strong class="{% if stat.margine >= 0 %}text-success{% else %}text-danger{% endif %}">
+                                € {{ "%.2f"|format(stat.margine) }}
+                            </strong>
+                        </td>
+                        <td>
+                            <div class="d-flex align-items-center">
+                                <strong class="{% if stat.margine_percentuale >= 25 %}text-success{% elif stat.margine_percentuale >= 0 %}text-warning{% else %}text-danger{% endif %}">
+                                    {{ "%.1f"|format(stat.margine_percentuale) }}%
+                                </strong>
+                                <div class="progress ms-2" style="width: 60px; height: 8px;">
+                                    <div class="progress-bar {% if stat.margine_percentuale >= 25 %}bg-success{% elif stat.margine_percentuale >= 0 %}bg-warning{% else %}bg-danger{% endif %}" 
+                                         style="width: {{ ((stat.margine_percentuale + 50) / 100 * 100)|round }}%;"></div>
+                                </div>
+                            </div>
+                        </td>
+                        <td>
+                            {% if stat.margine_percentuale >= 25 %}
+                                <span class="badge bg-success">
+                                    <i class="bi bi-check-circle"></i> Ottimo
+                                </span>
+                            {% elif stat.margine_percentuale >= 15 %}
+                                <span class="badge bg-warning">
+                                    <i class="bi bi-exclamation-triangle"></i> Buono
+                                </span>
+                            {% elif stat.margine_percentuale >= 0 %}
+                                <span class="badge bg-danger">
+                                    <i class="bi bi-x-circle"></i> Scarso
+                                </span>
+                            {% else %}
+                                <span class="badge bg-dark">
+                                    <i class="bi bi-x-circle"></i> Perdita
+                                </span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        {% if not statistiche %}
+        <div class="text-center py-5">
+            <i class="bi bi-calendar-x fs-1 text-muted"></i>
+            <p class="text-muted mt-3">Nessuna statistica disponibile per il periodo selezionato</p>
+            <small class="text-muted">Le statistiche vengono calcolate solo per acquisti con vendite</small>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Insights e raccomandazioni -->
+{% if statistiche %}
+<div class="row mt-4">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h6 class="mb-0"><i class="bi bi-lightbulb"></i> Insights</h6>
+            </div>
+            <div class="card-body">
+                {% set best_period = statistiche|max(attribute="margine_percentuale") %}
+                {% set worst_period = statistiche|min(attribute="margine_percentuale") %}
+                {% set avg_margin = (statistiche|sum(attribute="margine_percentuale") / statistiche|length) %}
+                
+                <ul class="list-unstyled">
+                    <li class="mb-2">
+                        <strong class="text-success">Miglior periodo:</strong> {{ best_period.periodo }}
+                        <br><small class="text-muted">Marginalità: {{ "%.1f"|format(best_period.margine_percentuale) }}%</small>
+                    </li>
+                    <li class="mb-2">
+                        <strong class="text-danger">Periodo più critico:</strong> {{ worst_period.periodo }}
+                        <br><small class="text-muted">Marginalità: {{ "%.1f"|format(worst_period.margine_percentuale) }}%</small>
+                    </li>
+                    <li class="mb-2">
+                        <strong class="text-info">Marginalità media:</strong> {{ "%.1f"|format(avg_margin) }}%
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h6 class="mb-0"><i class="bi bi-target"></i> Obiettivi</h6>
+            </div>
+            <div class="card-body">
+                {% set periodi_obiettivo = statistiche|selectattr("margine_percentuale", ">=", 25)|list|length %}
+                {% set percentuale_obiettivo = (periodi_obiettivo / statistiche|length * 100) if statistiche|length > 0 else 0 %}
+                
+                <div class="mb-3">
+                    <label class="form-label">Obiettivo 25% marginalità</label>
+                    <div class="progress">
+                        <div class="progress-bar {% if percentuale_obiettivo >= 75 %}bg-success{% elif percentuale_obiettivo >= 50 %}bg-warning{% else %}bg-danger{% endif %}" 
+                             style="width: {{ percentuale_obiettivo|round }}%;">
+                            {{ "%.0f"|format(percentuale_obiettivo) }}%
+                        </div>
+                    </div>
+                    <small class="text-muted">{{ periodi_obiettivo }} su {{ statistiche|length }} periodi raggiungono l'obiettivo</small>
+                </div>
+                
+                {% if percentuale_obiettivo < 75 %}
+                <div class="alert alert-warning p-2">
+                    <small>
+                        <i class="bi bi-exclamation-triangle"></i> 
+                        Focus su miglioramento marginalità nei prossimi periodi
+                    </small>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}

@@ -369,6 +369,15 @@ async def salva_modifica_acquisto(acquisto_id: int, request: Request, db: Sessio
     
     return RedirectResponse(url="/acquisti", status_code=303)
 
+@app.get("/vendite", response_class=HTMLResponse)
+async def lista_vendite(request: Request, db: Session = Depends(get_db)):
+    """Pagina lista vendite"""
+    vendite = db.query(Vendita).options(joinedload(Vendita.prodotto)).order_by(Vendita.created_at.desc()).all()
+    return templates.TemplateResponse("vendite.html", {
+        "request": request,
+        "vendite": vendite
+    })
+
 @app.get("/vendite/{vendita_id}/modifica", response_class=HTMLResponse)
 async def modifica_vendita_form(vendita_id: int, request: Request, db: Session = Depends(get_db)):
     """Form per modificare una vendita"""
@@ -425,48 +434,59 @@ async def elimina_vendita(vendita_id: int, db: Session = Depends(get_db)):
 async def performance_dashboard(request: Request, db: Session = Depends(get_db)):
     """Dashboard performance acquisti - analisi 30 giorni + 25% margine"""
     
-    # Ottieni tutti gli acquisti con prodotti e vendite
+    # Ottieni tutti gli acquisti con prodotti e vendite, ESCLUSI i fotorip
     acquisti = db.query(Acquisto).options(
         joinedload(Acquisto.prodotti).joinedload(Prodotto.vendite)
-    ).filter(Acquisto.data_consegna.isnot(None)).all()  # Solo acquisti arrivati
+    ).filter(
+        Acquisto.data_consegna.isnot(None),  # Solo acquisti arrivati
+        ~Acquisto.prodotti.any(  # Escludi acquisti che contengono prodotti fotorip
+            Prodotto.vendite.any(Vendita.canale_vendita == "RIPARAZIONI")
+        )
+    ).all()
     
     performance_data = []
     
     for acquisto in acquisti:
-        if not acquisto.prodotti:
-            continue
-            
-        # Calcola performance per questo acquisto
-        prodotti_totali = len(acquisto.prodotti)
-        prodotti_venduti = len([p for p in acquisto.prodotti if p.vendite])
+        # Filtra solo prodotti NON fotorip per i calcoli
+        prodotti_business = [p for p in acquisto.prodotti 
+                           if not any(v.canale_vendita == "RIPARAZIONI" for v in p.vendite)]
         
-        # Ricavi totali
+        if not prodotti_business:
+            continue  # Salta acquisti che sono solo fotorip
+            
+        # Calcola performance per questo acquisto (solo prodotti business)
+        prodotti_totali = len(prodotti_business)
+        prodotti_venduti = len([p for p in prodotti_business if p.vendite])
+        
+        # Ricavi totali (solo da prodotti business)
         ricavi_totali = sum(
-            sum(v.ricavo_netto for v in p.vendite) 
-            for p in acquisto.prodotti if p.vendite
+            sum(v.ricavo_netto for v in p.vendite if v.canale_vendita != "RIPARAZIONI") 
+            for p in prodotti_business if p.vendite
         )
         
-        # Marginalità
-        costo_totale = acquisto.costo_totale
-        margine = ricavi_totali - costo_totale
-        margine_percentuale = (margine / costo_totale * 100) if costo_totale > 0 else 0
+        # Marginalità (costo diviso per prodotti business, non totali)
+        costo_per_prodotto = acquisto.costo_totale / len(acquisto.prodotti)  # Costo unitario originale
+        costo_business = costo_per_prodotto * prodotti_totali  # Costo solo prodotti business
+        margine = ricavi_totali - costo_business
+        margine_percentuale = (margine / costo_business * 100) if costo_business > 0 else 0
         
-        # Tempo di vendita (giorni dall'arrivo alla vendita)
+        # Tempo di vendita (giorni dall'arrivo alla vendita) - solo prodotti business
         giorni_vendita = None
         vendita_completa = prodotti_venduti == prodotti_totali
         
         if vendita_completa and acquisto.data_consegna:
-            # Trova la data dell'ultima vendita
+            # Trova la data dell'ultima vendita (escluse riparazioni)
             date_vendite = []
-            for prodotto in acquisto.prodotti:
+            for prodotto in prodotti_business:
                 for vendita in prodotto.vendite:
-                    date_vendite.append(vendita.data_vendita)
+                    if vendita.canale_vendita != "RIPARAZIONI":
+                        date_vendite.append(vendita.data_vendita)
             
             if date_vendite:
                 ultima_vendita = max(date_vendite)
                 giorni_vendita = (ultima_vendita - acquisto.data_consegna).days
         
-        # Classificazione performance
+        # Classificazione performance (solo per prodotti business)
         performance_issues = []
         
         if not vendita_completa:
@@ -481,15 +501,17 @@ async def performance_dashboard(request: Request, db: Session = Depends(get_db))
         
         performance_data.append({
             "acquisto": acquisto,
-            "prodotti_totali": prodotti_totali,
-            "prodotti_venduti": prodotti_venduti,
+            "prodotti_totali": prodotti_totali,  # Solo business
+            "prodotti_venduti": prodotti_venduti,  # Solo business
             "vendita_completa": vendita_completa,
             "ricavi_totali": ricavi_totali,
             "margine": margine,
             "margine_percentuale": margine_percentuale,
             "giorni_vendita": giorni_vendita,
             "performance_status": performance_status,
-            "performance_issues": performance_issues
+            "performance_issues": performance_issues,
+            "costo_business": costo_business,  # Costo solo parte business
+            "ha_fotorip": len(prodotti_business) < len(acquisto.prodotti)  # Flag per UI
         })
     
     # Ordina per problemi prima
@@ -518,14 +540,19 @@ async def performance_dashboard(request: Request, db: Session = Depends(get_db))
 
 @app.get("/statistiche", response_class=HTMLResponse)
 async def statistiche_periodiche(request: Request, db: Session = Depends(get_db)):
-    """Statistiche per periodo (settimana/mese)"""
+    """Statistiche per periodo (settimana/mese) - ESCLUSI prodotti fotorip"""
     
     periodo = request.query_params.get("periodo", "mese")  # mese o settimana
     
-    # Query base per acquisti con vendite
+    # Query base per acquisti con vendite, esclusi fotorip
     query = db.query(Acquisto).options(
         joinedload(Acquisto.prodotti).joinedload(Prodotto.vendite)
-    ).filter(Acquisto.data_consegna.isnot(None))
+    ).filter(
+        Acquisto.data_consegna.isnot(None),
+        ~Acquisto.prodotti.any(  # Escludi acquisti che contengono solo prodotti fotorip
+            Prodotto.vendite.any(Vendita.canale_vendita == "RIPARAZIONI")
+        )
+    )
     
     acquisti = query.all()
     
@@ -535,6 +562,13 @@ async def statistiche_periodiche(request: Request, db: Session = Depends(get_db)
     for acquisto in acquisti:
         if not acquisto.data_consegna:
             continue
+        
+        # Filtra solo prodotti business (non fotorip)
+        prodotti_business = [p for p in acquisto.prodotti 
+                           if not any(v.canale_vendita == "RIPARAZIONI" for v in p.vendite)]
+        
+        if not prodotti_business:
+            continue  # Salta acquisti che sono solo fotorip
             
         # Determina chiave periodo
         if periodo == "settimana":
@@ -557,16 +591,19 @@ async def statistiche_periodiche(request: Request, db: Session = Depends(get_db)
                 "count": 0
             }
         
-        # Calcola metriche
-        ricavi_acquisto = sum(
-            sum(v.ricavo_netto for v in p.vendite) 
-            for p in acquisto.prodotti if p.vendite
+        # Calcola metriche (solo per prodotti business)
+        costo_per_prodotto = acquisto.costo_totale / len(acquisto.prodotti)  # Costo unitario
+        costo_business = costo_per_prodotto * len(prodotti_business)  # Costo solo business
+        
+        ricavi_business = sum(
+            sum(v.ricavo_netto for v in p.vendite if v.canale_vendita != "RIPARAZIONI") 
+            for p in prodotti_business if p.vendite
         )
         
         periodi[periodo_key]["acquisti"].append(acquisto)
-        periodi[periodo_key]["investimento"] += acquisto.costo_totale
-        periodi[periodo_key]["ricavi"] += ricavi_acquisto
-        periodi[periodo_key]["margine"] += ricavi_acquisto - acquisto.costo_totale
+        periodi[periodo_key]["investimento"] += costo_business
+        periodi[periodo_key]["ricavi"] += ricavi_business
+        periodi[periodo_key]["margine"] += ricavi_business - costo_business
         periodi[periodo_key]["count"] += 1
     
     # Converti in lista e calcola percentuali

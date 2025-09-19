@@ -1,0 +1,204 @@
+{% extends "base.html" %}
+
+{% block title %}Performance Acquisti - Gestionale Materiali{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h1><i class="bi bi-speedometer"></i> Performance Acquisti</h1>
+        <p class="text-muted">Analisi 30 giorni + 25% marginalità</p>
+    </div>
+    <div>
+        <a href="/statistiche" class="btn btn-outline-primary">
+            <i class="bi bi-graph-up"></i> Statistiche Periodiche
+        </a>
+    </div>
+</div>
+
+<!-- Statistiche generali -->
+<div class="row mb-4">
+    <div class="col-md-3">
+        <div class="card bg-primary text-white">
+            <div class="card-body text-center">
+                <h6>Totale Acquisti</h6>
+                <h3>{{ stats.total_acquisti }}</h3>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card bg-success text-white">
+            <div class="card-body text-center">
+                <h6>Performance OK</h6>
+                <h3>{{ stats.acquisti_ok }}</h3>
+                <small>{{ "%.1f"|format(stats.percentuale_ok) }}%</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card bg-danger text-white">
+            <div class="card-body text-center">
+                <h6>Con Problemi</h6>
+                <h3>{{ stats.acquisti_problemi }}</h3>
+                <small>{{ "%.1f"|format(100 - stats.percentuale_ok) }}%</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card bg-info text-white">
+            <div class="card-body text-center">
+                <h6>Margine Medio</h6>
+                <h3>{{ "%.1f"|format(stats.margine_medio) }}%</h3>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Criteri Performance -->
+<div class="alert alert-info mb-4">
+    <h6><i class="bi bi-info-circle"></i> Criteri Performance:</h6>
+    <ul class="mb-0">
+        <li><strong>Vendita entro 30 giorni:</strong> Tutti i prodotti venduti entro 30 giorni dalla consegna</li>
+        <li><strong>Marginalità ≥ 25%:</strong> Margine di almeno il 25% sui costi totali</li>
+        <li><strong>Vendita completa:</strong> Tutti i prodotti dell'acquisto devono essere venduti</li>
+    </ul>
+</div>
+
+<!-- Tabella performance -->
+<div class="card">
+    <div class="card-header">
+        <h5 class="mb-0">Dettaglio Performance Acquisti</h5>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-striped table-hover">
+                <thead class="table-dark">
+                    <tr>
+                        <th>Acquisto</th>
+                        <th>Prodotti</th>
+                        <th>Vendita</th>
+                        <th>Marginalità</th>
+                        <th>Tempo Vendita</th>
+                        <th>Status</th>
+                        <th>Problemi</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for perf in performance_data %}
+                    <tr class="{% if perf.performance_status == 'PROBLEMI' %}table-warning{% endif %}">
+                        <td>
+                            <strong>{{ perf.acquisto.id_acquisto_univoco }}</strong>
+                            <br>
+                            <small class="text-muted">
+                                {{ perf.acquisto.venditore }} - {{ perf.acquisto.dove_acquistato }}
+                            </small>
+                            <br>
+                            <small class="text-muted">
+                                {% if perf.acquisto.data_consegna %}
+                                    Arrivato: {{ perf.acquisto.data_consegna.strftime('%d/%m/%Y') }}
+                                {% else %}
+                                    Non ancora arrivato
+                                {% endif %}
+                            </small>
+                            {% if perf.ha_fotorip %}
+                                <br>
+                                <small class="text-info">
+                                    <i class="bi bi-tools"></i> Include fotorip (esclusi dal calcolo)
+                                </small>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <div>
+                                <span class="badge bg-info">{{ perf.prodotti_totali }} prodotti</span>
+                            </div>
+                            <small class="text-muted">
+                                Costo: € {{ "%.2f"|format(perf.costo_business) }}
+                                {% if perf.ha_fotorip %}
+                                    <br><small class="text-info">(Solo parte business)</small>
+                                {% endif %}
+                            </small>
+                        </td>
+                        <td>
+                            <div class="mb-1">
+                                <span class="badge {% if perf.vendita_completa %}bg-success{% else %}bg-warning{% endif %}">
+                                    {{ perf.prodotti_venduti }}/{{ perf.prodotti_totali }} venduti
+                                </span>
+                            </div>
+                            <small class="text-success">
+                                Ricavi: € {{ "%.2f"|format(perf.ricavi_totali) }}
+                            </small>
+                        </td>
+                        <td>
+                            <div>
+                                <strong class="{% if perf.margine_percentuale >= 25 %}text-success{% else %}text-danger{% endif %}">
+                                    {{ "%.1f"|format(perf.margine_percentuale) }}%
+                                </strong>
+                            </div>
+                            <small class="{% if perf.margine >= 0 %}text-success{% else %}text-danger{% endif %}">
+                                € {{ "%.2f"|format(perf.margine) }}
+                            </small>
+                        </td>
+                        <td>
+                            {% if perf.giorni_vendita is not none %}
+                                <span class="{% if perf.giorni_vendita <= 30 %}text-success{% else %}text-danger{% endif %}">
+                                    {{ perf.giorni_vendita }} giorni
+                                </span>
+                            {% elif perf.vendita_completa %}
+                                <span class="text-muted">Calcolo non disponibile</span>
+                            {% else %}
+                                <span class="text-muted">In vendita</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if perf.performance_status == "OK" %}
+                                <span class="badge bg-success">
+                                    <i class="bi bi-check-circle"></i> OK
+                                </span>
+                            {% else %}
+                                <span class="badge bg-warning">
+                                    <i class="bi bi-exclamation-triangle"></i> PROBLEMI
+                                </span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if perf.performance_issues %}
+                                <ul class="list-unstyled mb-0">
+                                    {% for issue in perf.performance_issues %}
+                                    <li class="text-danger">
+                                        <small><i class="bi bi-dot"></i> {{ issue }}</small>
+                                    </li>
+                                    {% endfor %}
+                                </ul>
+                            {% else %}
+                                <span class="text-success">
+                                    <small><i class="bi bi-check"></i> Nessun problema</small>
+                                </span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        {% if not performance_data %}
+        <div class="text-center py-5">
+            <i class="bi bi-graph-up fs-1 text-muted"></i>
+            <p class="text-muted mt-3">Nessun acquisto con data di consegna trovato</p>
+            <small class="text-muted">Gli acquisti vengono analizzati solo dopo essere stati consegnati</small>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Suggerimenti -->
+{% if stats.acquisti_problemi > 0 %}
+<div class="alert alert-warning mt-4">
+    <h6><i class="bi bi-lightbulb"></i> Suggerimenti per migliorare le performance:</h6>
+    <ul class="mb-0">
+        <li><strong>Vendita lenta:</strong> Considera di abbassare i prezzi o cambiare canale di vendita</li>
+        <li><strong>Margine basso:</strong> Rivedi i fornitori o i costi accessori</li>
+        <li><strong>Vendita parziale:</strong> Verifica se i prodotti sono correttamente listati sui canali di vendita</li>
+    </ul>
+</div>
+{% endif %}
+{% endblock %}
