@@ -726,15 +726,18 @@ async def ricevi_acquisti_da_script(request: Request, db: Session = Depends(get_
                     if is_fotorip:
                         db.flush()  # Per ottenere l'ID del prodotto
                         
+                        # Per fotorip: prezzo vendita = costo totale (acquisto + accessori) per margine neutro
+                        costo_totale_acquisto = float(acquisto_info.get("costo_acquisto", 0)) + float(acquisto_info.get("costi_accessori", 0))
+                        
                         vendita_fotorip = Vendita(
                             prodotto_id=nuovo_prodotto.id,
                             data_vendita=data_consegna if data_consegna else date.today(),
                             canale_vendita="RIPARAZIONI",
-                            prezzo_vendita=float(acquisto_info.get("costo_acquisto", 0)),
+                            prezzo_vendita=costo_totale_acquisto,  # Costo totale per margine neutro
                             commissioni=0.0,
                             synced_from_invoicex=False,
                             invoicex_id=f"FOTORIP_{nuovo_prodotto.id}",
-                            note_vendita="Prodotto utilizzato per riparazioni - importato da Excel"
+                            note_vendita="Prodotto utilizzato per riparazioni - margine neutro - importato da Excel"
                         )
                         
                         db.add(vendita_fotorip)
