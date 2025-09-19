@@ -492,6 +492,99 @@ async def debug_ip(request: Request):
     except Exception as e:
         return {"error": str(e)}
 
+@app.post("/api/sync/vendite")
+async def ricevi_vendite_da_script(request: Request, db: Session = Depends(get_db)):
+    """API per ricevere vendite dallo script locale"""
+    try:
+        data = await request.json()
+        
+        # Verifica token di sicurezza semplice
+        if data.get("token") != "sync_token_2024":
+            raise HTTPException(status_code=401, detail="Token non valido")
+        
+        vendite_data = data.get("vendite", [])
+        risultati = {
+            "vendite_inserite": 0,
+            "vendite_aggiornate": 0,
+            "errori": []
+        }
+        
+        for vendita in vendite_data:
+            try:
+                # Cerca il prodotto tramite seriale
+                seriale = vendita.get("seriale")
+                if not seriale:
+                    risultati["errori"].append("Seriale mancante")
+                    continue
+                
+                prodotto = db.query(Prodotto).filter(Prodotto.seriale == seriale).first()
+                if not prodotto:
+                    risultati["errori"].append(f"Prodotto non trovato per seriale: {seriale}")
+                    continue
+                
+                # Verifica se vendita già esiste
+                invoicex_id = str(vendita.get("id", ""))
+                vendita_esistente = db.query(Vendita).filter(Vendita.invoicex_id == invoicex_id).first()
+                
+                if vendita_esistente:
+                    risultati["vendite_aggiornate"] += 1
+                    continue
+                
+                # Crea nuova vendita
+                nuova_vendita = Vendita(
+                    prodotto_id=prodotto.id,
+                    data_vendita=datetime.strptime(vendita.get("data_vendita"), "%Y-%m-%d").date(),
+                    canale_vendita=vendita.get("canale_vendita", "unknown"),
+                    prezzo_vendita=float(vendita.get("prezzo_vendita", 0)),
+                    commissioni=float(vendita.get("commissioni", 0)),
+                    synced_from_invoicex=True,
+                    invoicex_id=invoicex_id,
+                    note_vendita=vendita.get("note")
+                )
+                
+                db.add(nuova_vendita)
+                risultati["vendite_inserite"] += 1
+                
+            except Exception as e:
+                risultati["errori"].append(f"Errore vendita {vendita.get('id', 'unknown')}: {str(e)}")
+        
+        db.commit()
+        return {
+            "status": "success",
+            "message": f"Processate {len(vendite_data)} vendite",
+            "risultati": risultati
+        }
+        
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@app.get("/api/sync/prodotti-senza-vendite")
+async def get_prodotti_per_sync(db: Session = Depends(get_db)):
+    """API per ottenere lista prodotti con seriali per lo script"""
+    try:
+        prodotti = db.query(Prodotto).filter(
+            Prodotto.seriale.isnot(None),  # Solo prodotti con seriale
+            ~Prodotto.vendite.any()  # Che non hanno vendite
+        ).all()
+        
+        prodotti_data = []
+        for p in prodotti:
+            prodotti_data.append({
+                "id": p.id,
+                "seriale": p.seriale,
+                "descrizione": p.prodotto_descrizione,
+                "acquisto_id": p.acquisto.id_acquisto_univoco if p.acquisto else None
+            })
+        
+        return {
+            "status": "success",
+            "prodotti": prodotti_data,
+            "count": len(prodotti_data)
+        }
+        
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
 @app.get("/explore-invoicex")
 async def explore_invoicex_detailed():
     """Esplorazione dettagliata del database InvoiceX"""
