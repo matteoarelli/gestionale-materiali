@@ -210,7 +210,11 @@
                                 </small>
                             {% endif %}
                             <div class="small text-muted">
-                                €{{ "%.2f"|format(acquisto.costo_totale / acquisto.numero_prodotti) }}/pezzo
+                                {% if acquisto.numero_prodotti > 0 %}
+    €{{ "%.2f"|format(acquisto.costo_totale / acquisto.numero_prodotti) }}/pezzo
+{% else %}
+    Nessun prodotto
+{% endif %}
                             </div>
                         </td>
                         
