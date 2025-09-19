@@ -6,7 +6,7 @@
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
         <h1><i class="bi bi-cart-plus"></i> Acquisti</h1>
-        <p class="text-muted">Tutti gli acquisti registrati</p>
+        <p class="text-muted">Gestione completa degli acquisti con filtri avanzati</p>
     </div>
     <div>
         <a href="/acquisti/nuovo" class="btn btn-primary">
@@ -15,136 +15,325 @@
     </div>
 </div>
 
+<!-- Filtri e Ordinamento -->
+<div class="card mb-4">
+    <div class="card-body">
+        <form method="GET" action="/acquisti" class="row align-items-end">
+            <div class="col-md-3">
+                <label class="form-label">Filtro Stato</label>
+                <select name="filtro_stato" class="form-select">
+                    <option value="tutti" {% if filtro_stato == 'tutti' %}selected{% endif %}>Tutti gli acquisti</option>
+                    <option value="in_stock" {% if filtro_stato == 'in_stock' %}selected{% endif %}>In Stock</option>
+                    <option value="venduti" {% if filtro_stato == 'venduti' %}selected{% endif %}>Completamente Venduti</option>
+                    <option value="parziali" {% if filtro_stato == 'parziali' %}selected{% endif %}>Vendite Parziali</option>
+                    <option value="problematici" {% if filtro_stato == 'problematici' %}selected{% endif %}>Problematici</option>
+                    <option value="senza_seriali" {% if filtro_stato == 'senza_seriali' %}selected{% endif %}>Senza Seriali</option>
+                    <option value="non_arrivati" {% if filtro_stato == 'non_arrivati' %}selected{% endif %}>Non Arrivati</option>
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Ordinamento</label>
+                <select name="ordinamento" class="form-select">
+                    <option value="data_desc" {% if ordinamento == 'data_desc' %}selected{% endif %}>Data Creazione ↓</option>
+                    <option value="data_asc" {% if ordinamento == 'data_asc' %}selected{% endif %}>Data Creazione ↑</option>
+                    <option value="urgenza" {% if ordinamento == 'urgenza' %}selected{% endif %}>Urgenza</option>
+                    <option value="margine_desc" {% if ordinamento == 'margine_desc' %}selected{% endif %}>Margine ↓</option>
+                    <option value="margine_asc" {% if ordinamento == 'margine_asc' %}selected{% endif %}>Margine ↑</option>
+                    <option value="costo_desc" {% if ordinamento == 'costo_desc' %}selected{% endif %}>Costo ↓</option>
+                    <option value="giorni_stock" {% if ordinamento == 'giorni_stock' %}selected{% endif %}>Giorni in Stock ↓</option>
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Cerca</label>
+                <input type="text" name="cerca" class="form-control" placeholder="ID, venditore, prodotto..." value="{{ cerca or '' }}">
+            </div>
+            <div class="col-md-3">
+                <button type="submit" class="btn btn-outline-primary w-100">
+                    <i class="bi bi-funnel"></i> Applica Filtri
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Statistiche rapide filtrate -->
+{% if acquisti %}
+<div class="row mb-4">
+    <div class="col-md-3">
+        <div class="card bg-primary text-white">
+            <div class="card-body text-center">
+                <h6>Acquisti Mostrati</h6>
+                <h4>{{ acquisti|length }}</h4>
+                {% if acquisti_totali != acquisti|length %}
+                    <small>su {{ acquisti_totali }} totali</small>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card bg-info text-white">
+            <div class="card-body text-center">
+                <h6>Prodotti</h6>
+                <h4>{{ acquisti|sum(attribute="numero_prodotti") }}</h4>
+                <small>{{ acquisti|selectattr("prodotti_venduti", "gt", 0)|sum(attribute="prodotti_venduti") }} venduti</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card bg-success text-white">
+            <div class="card-body text-center">
+                <h6>Investimento</h6>
+                <h4>€ {{ "%.0f"|format(acquisti|sum(attribute="costo_totale")) }}</h4>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card bg-warning text-dark">
+            <div class="card-body text-center">
+                <h6>Margine Totale</h6>
+                <h4>€ {{ "%.0f"|format(acquisti|sum(attribute="margine_totale")) }}</h4>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Tabella acquisti -->
 <div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0">
+            Lista Acquisti 
+            {% if filtro_stato and filtro_stato != 'tutti' %}
+                - {{ filtro_stato|replace('_', ' ')|title }}
+            {% endif %}
+        </h5>
+        <div>
+            <button class="btn btn-sm btn-outline-secondary" onclick="toggleViewCompatta()">
+                <i class="bi bi-list"></i> Vista Compatta
+            </button>
+        </div>
+    </div>
     <div class="card-body">
         <div class="table-responsive">
-            <table class="table table-striped table-hover">
+            <table class="table table-hover" id="tabellaAcquisti">
                 <thead class="table-dark">
                     <tr>
-                        <th>ID Acquisto</th>
+                        <th>
+                            <div class="d-flex align-items-center">
+                                <span class="urgenza-indicator me-2">⚡</span>
+                                ID Acquisto
+                            </div>
+                        </th>
                         <th>Prodotti</th>
                         <th>Venditore</th>
-                        <th>Costo Totale</th>
-                        <th>Data Acquisto</th>
-                        <th>Stato</th>
-                        <th>Margine</th>
+                        <th>Costo</th>
+                        <th>Data / Stato</th>
+                        <th>Vendita</th>
+                        <th>Performance</th>
                         <th width="160px">Azioni</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for acquisto in acquisti %}
-                    <tr>
-                        <td>
-                            <strong>{{ acquisto.id_acquisto_univoco }}</strong>
-                            <br>
-                            <small class="text-muted">{{ acquisto.dove_acquistato }}</small>
-                        </td>
-                        <td>
-                            <div>
-                                <span class="badge bg-info">{{ acquisto.numero_prodotti }} prodotti</span>
+                    <tr class="acquisto-row {% if acquisto.problematico %}table-warning{% elif acquisto.completamente_venduto %}table-success-light{% endif %}" 
+                        data-urgenza="{{ acquisto.urgenza_score }}" data-problemi="{{ acquisto.problemi_list|length }}">
+                        
+                        <td class="align-middle">
+                            <!-- Indicatori urgenza -->
+                            <div class="d-flex align-items-center mb-1">
+                                {% if acquisto.urgenza_score >= 80 %}
+                                    <span class="badge bg-danger me-2" title="Alta urgenza">🔥 {{ acquisto.urgenza_score }}</span>
+                                {% elif acquisto.urgenza_score >= 60 %}
+                                    <span class="badge bg-warning me-2" title="Media urgenza">⚠️ {{ acquisto.urgenza_score }}</span>
+                                {% elif acquisto.urgenza_score >= 40 %}
+                                    <span class="badge bg-info me-2" title="Bassa urgenza">ℹ️ {{ acquisto.urgenza_score }}</span>
+                                {% endif %}
+                                
+                                <strong>{{ acquisto.id_acquisto_univoco }}</strong>
                             </div>
-                            {% if acquisto.prodotti %}
-                                {% for prodotto in acquisto.prodotti[:3] %}
+                            <small class="text-muted">{{ acquisto.dove_acquistato }}</small>
+                            
+                            <!-- Problemi -->
+                            {% if acquisto.problemi_list %}
                                 <div class="mt-1">
+                                    {% for problema in acquisto.problemi_list %}
+                                        <span class="badge bg-secondary" style="font-size: 0.6rem;">{{ problema }}</span>
+                                    {% endfor %}
+                                </div>
+                            {% endif %}
+                        </td>
+                        
+                        <td class="align-middle">
+                            <div class="mb-1">
+                                <span class="badge {% if acquisto.prodotti_senza_seriali > 0 %}bg-warning{% else %}bg-info{% endif %}">
+                                    {{ acquisto.numero_prodotti }} prodotti
+                                </span>
+                                {% if acquisto.prodotti_senza_seriali > 0 %}
+                                    <span class="badge bg-warning ms-1" title="Seriali mancanti">
+                                        {{ acquisto.prodotti_senza_seriali }} senza seriali
+                                    </span>
+                                {% endif %}
+                            </div>
+                            
+                            <!-- Lista prodotti compatta -->
+                            <div class="prodotti-lista" style="max-height: 80px; overflow-y: auto;">
+                                {% for prodotto in acquisto.prodotti[:3] %}
+                                <div class="small text-muted mb-1">
                                     {% if prodotto.seriale %}
-                                        <small><code>{{ prodotto.seriale }}</code></small>
+                                        <code class="text-success">{{ prodotto.seriale }}</code>
                                     {% else %}
-                                        <small class="text-warning"><i class="bi bi-exclamation-triangle"></i> Senza seriale</small>
+                                        <span class="text-warning">No Serial</span>
                                     {% endif %}
-                                    <br>
-                                    <small class="text-muted">
-                                        {{ prodotto.prodotto_descrizione[:30] }}
-                                        {% if prodotto.prodotto_descrizione|length > 30 %}...{% endif %}
-                                    </small>
+                                    <span class="ms-1">{{ prodotto.prodotto_descrizione[:25] }}{% if prodotto.prodotto_descrizione|length > 25 %}...{% endif %}</span>
+                                    {% if prodotto.venduto %}
+                                        <i class="bi bi-check-circle text-success ms-1"></i>
+                                    {% endif %}
                                 </div>
                                 {% endfor %}
                                 {% if acquisto.numero_prodotti > 3 %}
                                     <small class="text-muted">...e altri {{ acquisto.numero_prodotti - 3 }} prodotti</small>
                                 {% endif %}
-                            {% endif %}
+                            </div>
                         </td>
-                        <td>{{ acquisto.venditore }}</td>
-                        <td>
-                            <strong>€ {{ "%.2f"|format(acquisto.costo_totale) }}</strong>
+                        
+                        <td class="align-middle">
+                            <strong>{{ acquisto.venditore }}</strong>
+                        </td>
+                        
+                        <td class="align-middle">
+                            <div>
+                                <strong>€ {{ "%.2f"|format(acquisto.costo_totale) }}</strong>
+                            </div>
                             {% if acquisto.costi_accessori > 0 %}
-                                <br>
                                 <small class="text-muted">
                                     ({{ "%.2f"|format(acquisto.costo_acquisto) }} + {{ "%.2f"|format(acquisto.costi_accessori) }})
                                 </small>
                             {% endif %}
+                            <div class="small text-muted">
+                                €{{ "%.2f"|format(acquisto.costo_totale / acquisto.numero_prodotti) }}/pezzo
+                            </div>
                         </td>
-                        <td>
-                            {{ acquisto.created_at.strftime('%d/%m/%Y') }}
+                        
+                        <td class="align-middle">
+                            <div class="mb-1">
+                                {{ acquisto.created_at.strftime('%d/%m/%Y') }}
+                            </div>
+                            
+                            <!-- Stato consegna -->
                             {% if acquisto.data_consegna %}
-                                <br>
-                                <small class="text-success">
-                                    <i class="bi bi-truck"></i> {{ acquisto.data_consegna.strftime('%d/%m/%Y') }}
-                                </small>
+                                <div class="small">
+                                    <span class="badge bg-success">
+                                        <i class="bi bi-truck"></i> {{ acquisto.data_consegna.strftime('%d/%m') }}
+                                    </span>
+                                    {% if acquisto.giorni_stock %}
+                                        <span class="small text-muted">({{ acquisto.giorni_stock }}g in stock)</span>
+                                    {% endif %}
+                                </div>
+                            {% else %}
+                                <span class="badge bg-secondary">
+                                    <i class="bi bi-clock"></i> Non arrivato
+                                </span>
+                                {% if acquisto.giorni_attesa %}
+                                    <div class="small text-muted">{{ acquisto.giorni_attesa }} giorni di attesa</div>
+                                {% endif %}
                             {% endif %}
                         </td>
-                        <td>
+                        
+                        <td class="align-middle">
                             {% if acquisto.completamente_venduto %}
-                                <span class="badge bg-success">
-                                    <i class="bi bi-check-circle"></i> Tutto Venduto
-                                </span>
+                                <div>
+                                    <span class="badge bg-success mb-1">
+                                        <i class="bi bi-check-circle"></i> Tutto Venduto
+                                    </span>
+                                </div>
+                                <div class="small text-success">
+                                    <strong>€ {{ "%.2f"|format(acquisto.ricavo_totale) }}</strong>
+                                </div>
                             {% elif acquisto.prodotti_venduti > 0 %}
-                                <span class="badge bg-warning">
-                                    <i class="bi bi-clock"></i> Parziale
-                                </span>
-                                <br>
-                                <small class="text-muted">
+                                <div>
+                                    <span class="badge bg-warning mb-1">
+                                        <i class="bi bi-clock"></i> Parziale
+                                    </span>
+                                </div>
+                                <div class="small">
                                     {{ acquisto.prodotti_venduti }}/{{ acquisto.numero_prodotti }} venduti
-                                </small>
+                                </div>
+                                <div class="small text-success">
+                                    €{{ "%.2f"|format(acquisto.ricavo_totale) }}
+                                </div>
                             {% else %}
                                 <span class="badge bg-secondary">
                                     <i class="bi bi-box-seam"></i> In Stock
                                 </span>
                             {% endif %}
                         </td>
-                        <td>
+                        
+                        <td class="align-middle">
                             {% if acquisto.prodotti_venduti > 0 %}
                                 {% set margine = acquisto.margine_totale %}
-                                <strong class="{% if margine >= 0 %}text-success{% else %}text-danger{% endif %}">
-                                    € {{ "%.2f"|format(margine) }}
-                                </strong>
-                                <br>
-                                <small class="text-muted">
-                                    Ricavo: € {{ "%.2f"|format(acquisto.ricavo_totale) }}
-                                </small>
+                                {% set margine_perc = (margine / acquisto.costo_totale * 100) if acquisto.costo_totale > 0 else 0 %}
+                                
+                                <div>
+                                    <strong class="{% if margine >= 0 %}text-success{% else %}text-danger{% endif %}">
+                                        €{{ "%.0f"|format(margine) }}
+                                    </strong>
+                                </div>
+                                <div class="small">
+                                    <span class="{% if margine_perc >= 25 %}text-success{% elif margine_perc >= 15 %}text-warning{% else %}text-danger{% endif %}">
+                                        {{ "%.1f"|format(margine_perc) }}%
+                                    </span>
+                                </div>
+                                
+                                <!-- Performance score -->
+                                {% if acquisto.performance_score %}
+                                    <div class="mt-1">
+                                        <div class="progress" style="height: 4px;">
+                                            <div class="progress-bar {% if acquisto.performance_score >= 80 %}bg-success{% elif acquisto.performance_score >= 60 %}bg-warning{% else %}bg-danger{% endif %}" 
+                                                 style="width: {{ acquisto.performance_score }}%;" 
+                                                 title="Performance: {{ acquisto.performance_score }}%">
+                                            </div>
+                                        </div>
+                                    </div>
+                                {% endif %}
                             {% else %}
                                 <span class="text-muted">-</span>
                             {% endif %}
                         </td>
-                        <td>
-                            <div class="btn-group" role="group">
-                                <!-- Inserisci seriali (se ci sono prodotti senza seriale) -->
-                                {% set prodotti_senza_seriale = acquisto.prodotti|selectattr("seriale", "none")|list %}
-                                {% if prodotti_senza_seriale %}
-                                <a href="/acquisti/{{ acquisto.id }}/seriali" 
-                                   class="btn btn-sm btn-outline-warning" title="Inserisci seriali mancanti">
-                                    <i class="bi bi-upc-scan"></i>
-                                </a>
-                                {% endif %}
+                        
+                        <td class="align-middle">
+                            <div class="btn-group-vertical" role="group">
+                                <!-- Prima riga azioni -->
+                                <div class="btn-group mb-1" role="group">
+                                    <!-- Inserisci seriali (se ci sono prodotti senza seriale) -->
+                                    {% if acquisto.prodotti_senza_seriali > 0 %}
+                                    <a href="/acquisti/{{ acquisto.id }}/seriali" 
+                                       class="btn btn-sm btn-warning" title="Inserisci {{ acquisto.prodotti_senza_seriali }} seriali mancanti">
+                                        <i class="bi bi-upc-scan"></i>
+                                    </a>
+                                    {% endif %}
+                                    
+                                    <!-- Modifica -->
+                                    <a href="/acquisti/{{ acquisto.id }}/modifica" 
+                                       class="btn btn-sm btn-outline-primary" title="Modifica">
+                                        <i class="bi bi-pencil"></i>
+                                    </a>
+                                    
+                                    <!-- Segna come arrivato (solo se non ha data consegna) -->
+                                    {% if not acquisto.data_consegna %}
+                                    <button type="button" class="btn btn-sm btn-success" 
+                                            title="Segna come arrivato oggi" onclick="segnaArrivato({{ acquisto.id }})">
+                                        <i class="bi bi-truck"></i>
+                                    </button>
+                                    {% endif %}
+                                </div>
                                 
-                                <!-- Modifica -->
-                                <a href="/acquisti/{{ acquisto.id }}/modifica" 
-                                   class="btn btn-sm btn-outline-primary" title="Modifica acquisto">
-                                    <i class="bi bi-pencil"></i>
-                                </a>
-                                
-                                <!-- Segna come arrivato (solo se non ha data consegna) -->
-                                {% if not acquisto.data_consegna %}
-                                <button type="button" class="btn btn-sm btn-outline-success" 
-                                        title="Segna come arrivato" onclick="segnaArrivato({{ acquisto.id }})">
-                                    <i class="bi bi-truck"></i>
-                                </button>
-                                {% endif %}
-                                
-                                <!-- Elimina -->
-                                <button type="button" class="btn btn-sm btn-outline-danger" 
-                                        title="Elimina acquisto" onclick="confermaEliminazione({{ acquisto.id }}, '{{ acquisto.id_acquisto_univoco }}')">
-                                    <i class="bi bi-trash"></i>
-                                </button>
+                                <!-- Seconda riga azioni -->
+                                <div class="btn-group" role="group">
+                                    <button type="button" class="btn btn-sm btn-outline-danger" 
+                                            title="Elimina acquisto" onclick="confermaEliminazione({{ acquisto.id }}, '{{ acquisto.id_acquisto_univoco }}')">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </div>
                             </div>
                         </td>
                     </tr>
@@ -155,73 +344,109 @@
         
         {% if not acquisti %}
         <div class="text-center py-5">
-            <i class="bi bi-cart-plus fs-1 text-muted"></i>
-            <p class="text-muted mt-3">Nessun acquisto registrato ancora</p>
-            <a href="/acquisti/nuovo" class="btn btn-primary">
-                <i class="bi bi-plus-circle"></i> Registra il tuo primo acquisto
-            </a>
+            <i class="bi bi-funnel fs-1 text-muted"></i>
+            <p class="text-muted mt-3">Nessun acquisto trovato con i filtri selezionati</p>
+            {% if filtro_stato and filtro_stato != 'tutti' %}
+                <a href="/acquisti" class="btn btn-outline-primary">
+                    <i class="bi bi-arrow-clockwise"></i> Rimuovi Filtri
+                </a>
+            {% else %}
+                <a href="/acquisti/nuovo" class="btn btn-primary">
+                    <i class="bi bi-plus-circle"></i> Registra il tuo primo acquisto
+                </a>
+            {% endif %}
         </div>
         {% endif %}
     </div>
 </div>
 
-<!-- Riepilogo statistiche -->
+<!-- Azioni multiple -->
 {% if acquisti %}
-<div class="row mt-4">
-    <div class="col-md-3">
-        <div class="card text-center">
-            <div class="card-body">
-                <h6 class="text-muted">Totale Acquisti</h6>
-                <h4>{{ acquisti|length }}</h4>
-            </div>
-        </div>
+<div class="card mt-4 border-primary">
+    <div class="card-header bg-primary text-white">
+        <h6 class="mb-0"><i class="bi bi-lightning-fill"></i> Azioni Multiple</h6>
     </div>
-    <div class="col-md-3">
-        <div class="card text-center">
-            <div class="card-body">
-                <h6 class="text-muted">Totale Prodotti</h6>
-                <h4 class="text-info">{{ acquisti|sum(attribute="numero_prodotti") }}</h4>
+    <div class="card-body">
+        <div class="row">
+            <div class="col-md-3">
+                <button onclick="selezionaTuttiProblematici()" class="btn btn-outline-warning btn-sm">
+                    <i class="bi bi-exclamation-triangle"></i> Seleziona Problematici
+                </button>
             </div>
-        </div>
-    </div>
-    <div class="col-md-3">
-        <div class="card text-center">
-            <div class="card-body">
-                <h6 class="text-muted">Prodotti Venduti</h6>
-                <h4 class="text-success">{{ acquisti|sum(attribute="prodotti_venduti") }}</h4>
+            <div class="col-md-3">
+                <button onclick="esportaFiltrati()" class="btn btn-outline-info btn-sm">
+                    <i class="bi bi-download"></i> Esporta Filtrati
+                </button>
             </div>
-        </div>
-    </div>
-    <div class="col-md-3">
-        <div class="card text-center">
-            <div class="card-body">
-                <h6 class="text-muted">Investimento</h6>
-                <h4 class="text-primary">€ {{ "%.2f"|format(acquisti|sum(attribute="costo_totale")) }}</h4>
+            <div class="col-md-3">
+                <a href="/da-gestire" class="btn btn-outline-primary btn-sm">
+                    <i class="bi bi-list-task"></i> Vai a Da Gestire
+                </a>
+            </div>
+            <div class="col-md-3">
+                <a href="/problemi" class="btn btn-outline-danger btn-sm">
+                    <i class="bi bi-bug"></i> Vai a Problemi
+                </a>
             </div>
         </div>
     </div>
 </div>
 {% endif %}
 
-<!-- Messaggio di successo per seriali inseriti -->
+<style>
+.table-success-light {
+    background-color: rgba(25, 135, 84, 0.1);
+}
+
+.acquisto-row[data-urgenza="high"] {
+    border-left: 4px solid #dc3545;
+}
+
+.acquisto-row[data-urgenza="medium"] {
+    border-left: 4px solid #ffc107;
+}
+
+.acquisto-row[data-urgenza="low"] {
+    border-left: 4px solid #17a2b8;
+}
+
+.vista-compatta .prodotti-lista {
+    max-height: 40px;
+    font-size: 0.75rem;
+}
+
+.vista-compatta td {
+    padding: 0.25rem 0.5rem;
+}
+
+.progress {
+    background-color: rgba(0,0,0,.1);
+}
+
+.badge {
+    font-size: 0.7rem;
+}
+</style>
+
+{% block scripts %}
 <script>
-if (window.location.search.includes('seriali_inserted=1')) {
-    const alert = document.createElement('div');
-    alert.className = 'alert alert-success alert-dismissible fade show mb-4';
-    alert.innerHTML = `
-        <i class="bi bi-check-circle"></i> Seriali inseriti con successo!
-        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-    `;
-    document.querySelector('.container').insertBefore(alert, document.querySelector('.d-flex'));
+let vistaCompatta = false;
+
+function toggleViewCompatta() {
+    vistaCompatta = !vistaCompatta;
+    const table = document.getElementById('tabellaAcquisti');
     
-    // Rimuovi il parametro dall'URL
-    const url = new URL(window.location);
-    url.searchParams.delete('seriali_inserted');
-    window.history.replaceState({}, document.title, url);
+    if (vistaCompatta) {
+        table.classList.add('vista-compatta');
+        document.querySelector('[onclick="toggleViewCompatta()"]').innerHTML = '<i class="bi bi-list-ul"></i> Vista Normale';
+    } else {
+        table.classList.remove('vista-compatta');
+        document.querySelector('[onclick="toggleViewCompatta()"]').innerHTML = '<i class="bi bi-list"></i> Vista Compatta';
+    }
 }
 
 function segnaArrivato(acquistoId) {
-    if (confirm('Segnare questo acquisto come arrivato? Verrà impostata la data di oggi come data di consegna.')) {
+    if (confirm('Segnare questo acquisto come arrivato oggi?')) {
         fetch(`/acquisti/${acquistoId}/segna-arrivato`, {
             method: 'POST',
             headers: {
@@ -252,5 +477,42 @@ function confermaEliminazione(acquistoId, nomeAcquisto) {
         });
     }
 }
+
+function selezionaTuttiProblematici() {
+    const problematici = document.querySelectorAll('.table-warning');
+    problematici.forEach(row => row.classList.add('table-info'));
+    
+    alert(`Selezionati ${problematici.length} acquisti problematici`);
+}
+
+function esportaFiltrati() {
+    const rows = document.querySelectorAll('tbody tr');
+    const data = Array.from(rows).map(row => {
+        const cells = row.querySelectorAll('td');
+        return {
+            id: cells[0].querySelector('strong').textContent,
+            venditore: cells[2].textContent.trim(),
+            costo: cells[3].querySelector('strong').textContent,
+            urgenza: row.dataset.urgenza,
+            problemi: row.dataset.problemi
+        };
+    });
+    
+    const dataStr = JSON.stringify(data, null, 2);
+    const dataBlob = new Blob([dataStr], {type:'application/json'});
+    
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(dataBlob);
+    link.download = 'acquisti_filtrati_' + new Date().toISOString().split('T')[0] + '.json';
+    link.click();
+}
+
+// Auto-submit form quando cambiano i filtri
+document.querySelectorAll('select[name="filtro_stato"], select[name="ordinamento"]').forEach(select => {
+    select.addEventListener('change', function() {
+        this.form.submit();
+    });
+});
 </script>
+{% endblock %}
 {% endblock %}

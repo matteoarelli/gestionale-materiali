@@ -1,0 +1,283 @@
+{% extends "base.html" %}
+
+{% block title %}Da Gestire - Gestionale Materiali{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h1><i class="bi bi-exclamation-triangle-fill text-warning"></i> Da Gestire</h1>
+        <p class="text-muted">Elementi che richiedono attenzione immediata</p>
+    </div>
+    <div>
+        <span class="badge bg-warning fs-6">{{ (prodotti_senza_seriali|length) + (acquisti_non_arrivati|length) }} elementi</span>
+    </div>
+</div>
+
+<!-- Statistiche rapide -->
+<div class="row mb-4">
+    <div class="col-md-6">
+        <div class="card border-warning">
+            <div class="card-body text-center">
+                <i class="bi bi-upc-scan fs-1 text-warning"></i>
+                <h4 class="mt-2">{{ prodotti_senza_seriali|length }}</h4>
+                <h6 class="text-muted">Prodotti senza seriali</h6>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card border-info">
+            <div class="card-body text-center">
+                <i class="bi bi-truck fs-1 text-info"></i>
+                <h4 class="mt-2">{{ acquisti_non_arrivati|length }}</h4>
+                <h6 class="text-muted">Acquisti non arrivati</h6>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Prodotti senza seriali -->
+{% if prodotti_senza_seriali %}
+<div class="card mb-4">
+    <div class="card-header bg-warning text-dark">
+        <h5 class="mb-0">
+            <i class="bi bi-upc-scan"></i> Prodotti Senza Seriali ({{ prodotti_senza_seriali|length }})
+        </h5>
+        <small>Questi prodotti necessitano del seriale per poter essere venduti</small>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-hover">
+                <thead class="table-light">
+                    <tr>
+                        <th>Acquisto</th>
+                        <th>Prodotto</th>
+                        <th>Arrivato</th>
+                        <th>Giorni senza seriale</th>
+                        <th>Azioni</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for prodotto in prodotti_senza_seriali %}
+                    <tr>
+                        <td>
+                            <strong>{{ prodotto.acquisto.id_acquisto_univoco }}</strong>
+                            <br>
+                            <small class="text-muted">{{ prodotto.acquisto.venditore }}</small>
+                        </td>
+                        <td>
+                            <div style="max-width: 250px;">
+                                {{ prodotto.prodotto_descrizione }}
+                            </div>
+                            {% if prodotto.note_prodotto %}
+                                <br><small class="text-muted">{{ prodotto.note_prodotto }}</small>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if prodotto.acquisto.data_consegna %}
+                                <span class="badge bg-success">
+                                    <i class="bi bi-check"></i> {{ prodotto.acquisto.data_consegna.strftime('%d/%m/%Y') }}
+                                </span>
+                            {% else %}
+                                <span class="badge bg-secondary">Non ancora</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if prodotto.acquisto.data_consegna %}
+                                {% set giorni = (now.date() - prodotto.acquisto.data_consegna).days %}
+                                <span class="{% if giorni > 7 %}text-danger{% elif giorni > 3 %}text-warning{% else %}text-muted{% endif %}">
+                                    {{ giorni }} giorni
+                                </span>
+                            {% else %}
+                                <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <a href="/acquisti/{{ prodotto.acquisto.id }}/seriali" class="btn btn-sm btn-warning">
+                                <i class="bi bi-upc-scan"></i> Inserisci Seriale
+                            </a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Acquisti non arrivati -->
+{% if acquisti_non_arrivati %}
+<div class="card mb-4">
+    <div class="card-header bg-info text-white">
+        <h5 class="mb-0">
+            <i class="bi bi-truck"></i> Acquisti Non Ancora Arrivati ({{ acquisti_non_arrivati|length }})
+        </h5>
+        <small>Acquisti pagati ma non ancora ricevuti</small>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-hover">
+                <thead class="table-light">
+                    <tr>
+                        <th>ID Acquisto</th>
+                        <th>Prodotti</th>
+                        <th>Venditore</th>
+                        <th>Costo</th>
+                        <th>Data Pagamento</th>
+                        <th>Giorni attesa</th>
+                        <th>Azioni</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for acquisto in acquisti_non_arrivati %}
+                    <tr class="{% if acquisto.giorni_attesa and acquisto.giorni_attesa > 14 %}table-danger{% elif acquisto.giorni_attesa and acquisto.giorni_attesa > 7 %}table-warning{% endif %}">
+                        <td>
+                            <strong>{{ acquisto.id_acquisto_univoco }}</strong>
+                            <br>
+                            <small class="text-muted">{{ acquisto.dove_acquistato }}</small>
+                        </td>
+                        <td>
+                            <span class="badge bg-info">{{ acquisto.numero_prodotti }} prodotti</span>
+                            {% if acquisto.prodotti %}
+                                <br>
+                                <small class="text-muted">
+                                    {{ acquisto.prodotti[0].prodotto_descrizione[:30] }}
+                                    {% if acquisto.prodotti[0].prodotto_descrizione|length > 30 %}...{% endif %}
+                                    {% if acquisto.numero_prodotti > 1 %}
+                                        <br>+{{ acquisto.numero_prodotti - 1 }} altri
+                                    {% endif %}
+                                </small>
+                            {% endif %}
+                        </td>
+                        <td>{{ acquisto.venditore }}</td>
+                        <td>
+                            <strong>€ {{ "%.2f"|format(acquisto.costo_totale) }}</strong>
+                        </td>
+                        <td>
+                            {% if acquisto.data_pagamento %}
+                                {{ acquisto.data_pagamento.strftime('%d/%m/%Y') }}
+                            {% else %}
+                                <span class="text-muted">Non specificata</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if acquisto.giorni_attesa is not none %}
+                                <span class="{% if acquisto.giorni_attesa > 14 %}text-danger{% elif acquisto.giorni_attesa > 7 %}text-warning{% else %}text-muted{% endif %}">
+                                    {{ acquisto.giorni_attesa }} giorni
+                                </span>
+                            {% else %}
+                                <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <div class="btn-group" role="group">
+                                <button class="btn btn-sm btn-success" onclick="segnaArrivato({{ acquisto.id }})" title="Segna come arrivato oggi">
+                                    <i class="bi bi-check"></i> Arrivato
+                                </button>
+                                <a href="/acquisti/{{ acquisto.id }}/modifica" class="btn btn-sm btn-outline-primary" title="Modifica">
+                                    <i class="bi bi-pencil"></i>
+                                </a>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Messaggio se tutto è in ordine -->
+{% if not prodotti_senza_seriali and not acquisti_non_arrivati %}
+<div class="card">
+    <div class="card-body text-center py-5">
+        <i class="bi bi-check-circle-fill fs-1 text-success"></i>
+        <h4 class="mt-3 text-success">Tutto in ordine!</h4>
+        <p class="text-muted">Non ci sono elementi che richiedono attenzione immediata.</p>
+        <a href="/acquisti" class="btn btn-primary">
+            <i class="bi bi-cart-plus"></i> Vai agli Acquisti
+        </a>
+    </div>
+</div>
+{% endif %}
+
+<!-- Azioni rapide -->
+{% if prodotti_senza_seriali or acquisti_non_arrivati %}
+<div class="card mt-4 border-primary">
+    <div class="card-header bg-primary text-white">
+        <h6 class="mb-0"><i class="bi bi-lightning-fill"></i> Azioni Rapide</h6>
+    </div>
+    <div class="card-body">
+        <div class="row">
+            {% if prodotti_senza_seriali %}
+            <div class="col-md-6">
+                <h6>Seriali mancanti</h6>
+                <p class="small text-muted">Inserisci i seriali per abilitare la vendita</p>
+                <form method="post" action="/da-gestire/inserisci-seriali-multipli" class="d-inline">
+                    <button type="submit" class="btn btn-warning btn-sm">
+                        <i class="bi bi-upc-scan"></i> Gestisci Seriali in Blocco
+                    </button>
+                </form>
+            </div>
+            {% endif %}
+            {% if acquisti_non_arrivati %}
+            <div class="col-md-6">
+                <h6>Consegne in sospeso</h6>
+                <p class="small text-muted">Segna come arrivati quando ricevuti</p>
+                <button onclick="segnaMultipliArrivati()" class="btn btn-info btn-sm">
+                    <i class="bi bi-truck"></i> Segna Tutti come Arrivati Oggi
+                </button>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{% block scripts %}
+<script>
+function segnaArrivato(acquistoId) {
+    if (confirm('Segnare questo acquisto come arrivato oggi?')) {
+        fetch(`/acquisti/${acquistoId}/segna-arrivato`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        })
+        .then(response => {
+            if (response.ok) {
+                location.reload();
+            } else {
+                alert('Errore nell\'aggiornamento');
+            }
+        })
+        .catch(error => {
+            alert('Errore nell\'aggiornamento');
+        });
+    }
+}
+
+function segnaMultipliArrivati() {
+    if (confirm('Segnare TUTTI gli acquisti non arrivati come arrivati oggi? Questa azione non può essere annullata.')) {
+        fetch('/da-gestire/segna-tutti-arrivati', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        })
+        .then(response => {
+            if (response.ok) {
+                location.reload();
+            } else {
+                alert('Errore nell\'aggiornamento');
+            }
+        })
+        .catch(error => {
+            alert('Errore nell\'aggiornamento');
+        });
+    }
+}
+</script>
+{% endblock %}
+{% endblock %}

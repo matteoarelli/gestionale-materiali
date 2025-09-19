@@ -1,0 +1,360 @@
+{% extends "base.html" %}
+
+{% block title %}Problemi - Gestionale Materiali{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h1><i class="bi bi-bug-fill text-danger"></i> Problemi</h1>
+        <p class="text-muted">Analisi vendite lente e margini critici</p>
+    </div>
+    <div>
+        <span class="badge bg-danger fs-6">{{ problemi_count }} problemi</span>
+    </div>
+</div>
+
+<!-- Statistiche problemi -->
+<div class="row mb-4">
+    <div class="col-md-4">
+        <div class="card border-danger">
+            <div class="card-body text-center">
+                <i class="bi bi-clock-fill fs-1 text-danger"></i>
+                <h4 class="mt-2">{{ vendite_lente|length }}</h4>
+                <h6 class="text-muted">Vendite Lente</h6>
+                <small class="text-muted">Prodotti in stock >30 giorni</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card border-warning">
+            <div class="card-body text-center">
+                <i class="bi bi-graph-down fs-1 text-warning"></i>
+                <h4 class="mt-2">{{ margini_critici|length }}</h4>
+                <h6 class="text-muted">Margini Critici</h6>
+                <small class="text-muted">Marginalità <25%</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card border-info">
+            <div class="card-body text-center">
+                <i class="bi bi-exclamation-triangle fs-1 text-info"></i>
+                <h4 class="mt-2">{{ problemi_count }}</h4>
+                <h6 class="text-muted">Totale Problemi</h6>
+                <small class="text-muted">Richiede attenzione</small>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Criteri problemi -->
+<div class="alert alert-info mb-4">
+    <h6><i class="bi bi-info-circle"></i> Criteri Problemi:</h6>
+    <div class="row">
+        <div class="col-md-6">
+            <ul class="mb-0">
+                <li><strong>Vendita Lenta:</strong> Prodotti in stock da oltre 30 giorni dall'arrivo</li>
+                <li><strong>Margine Critico:</strong> Marginalità inferiore al 25%</li>
+            </ul>
+        </div>
+        <div class="col-md-6">
+            <ul class="mb-0">
+                <li><strong>Vendita Parziale:</strong> Solo alcuni prodotti dell'acquisto venduti</li>
+                <li><strong>Perdita:</strong> Marginalità negativa</li>
+            </ul>
+        </div>
+    </div>
+</div>
+
+<!-- Vendite Lente -->
+{% if vendite_lente %}
+<div class="card mb-4">
+    <div class="card-header bg-danger text-white">
+        <h5 class="mb-0">
+            <i class="bi bi-clock-fill"></i> Vendite Lente ({{ vendite_lente|length }})
+        </h5>
+        <small>Prodotti non venduti da più di 30 giorni dall'arrivo</small>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-hover">
+                <thead class="table-light">
+                    <tr>
+                        <th>Prodotto</th>
+                        <th>Acquisto</th>
+                        <th>Arrivato</th>
+                        <th>Giorni in Stock</th>
+                        <th>Investimento</th>
+                        <th>Problema</th>
+                        <th>Suggerimenti</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in vendite_lente %}
+                    <tr class="{% if item.giorni_stock > 60 %}table-danger{% elif item.giorni_stock > 45 %}table-warning{% endif %}">
+                        <td>
+                            <div style="max-width: 200px;">
+                                <strong>{{ item.prodotto.prodotto_descrizione }}</strong>
+                            </div>
+                            {% if item.prodotto.seriale %}
+                                <br><small><code>{{ item.prodotto.seriale }}</code></small>
+                            {% endif %}
+                            {% if item.prodotto.note_prodotto %}
+                                <br><small class="text-muted">{{ item.prodotto.note_prodotto }}</small>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <strong>{{ item.acquisto.id_acquisto_univoco }}</strong>
+                            <br>
+                            <small class="text-muted">{{ item.acquisto.venditore }}</small>
+                        </td>
+                        <td>
+                            {{ item.acquisto.data_consegna.strftime('%d/%m/%Y') }}
+                        </td>
+                        <td>
+                            <span class="badge {% if item.giorni_stock > 60 %}bg-danger{% elif item.giorni_stock > 45 %}bg-warning{% else %}bg-secondary{% endif %}">
+                                {{ item.giorni_stock }} giorni
+                            </span>
+                        </td>
+                        <td>
+                            <strong>€ {{ "%.2f"|format(item.costo_unitario) }}</strong>
+                        </td>
+                        <td>
+                            <span class="text-danger">
+                                <i class="bi bi-exclamation-triangle"></i> Vendita molto lenta
+                            </span>
+                        </td>
+                        <td>
+                            <div class="small">
+                                • Verifica prezzo di mercato<br>
+                                • Cambia canale vendita<br>
+                                • Considera promozione
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Margini Critici -->
+{% if margini_critici %}
+<div class="card mb-4">
+    <div class="card-header bg-warning text-dark">
+        <h5 class="mb-0">
+            <i class="bi bi-graph-down"></i> Margini Critici ({{ margini_critici|length }})
+        </h5>
+        <small>Acquisti con marginalità inferiore al 25%</small>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-hover">
+                <thead class="table-light">
+                    <tr>
+                        <th>Acquisto</th>
+                        <th>Prodotti</th>
+                        <th>Investimento</th>
+                        <th>Ricavi</th>
+                        <th>Marginalità</th>
+                        <th>Problema</th>
+                        <th>Suggerimenti</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in margini_critici %}
+                    <tr class="{% if item.margine_percentuale < 0 %}table-danger{% elif item.margine_percentuale < 10 %}table-warning{% endif %}">
+                        <td>
+                            <strong>{{ item.acquisto.id_acquisto_univoco }}</strong>
+                            <br>
+                            <small class="text-muted">{{ item.acquisto.venditore }}</small>
+                            <br>
+                            <small class="text-muted">{{ item.acquisto.dove_acquistato }}</small>
+                        </td>
+                        <td>
+                            <div>
+                                <span class="badge bg-info">{{ item.prodotti_venduti }}/{{ item.prodotti_totali }} venduti</span>
+                            </div>
+                            {% if not item.vendita_completa %}
+                                <br><small class="text-warning">Vendita parziale</small>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <strong class="text-danger">€ {{ "%.2f"|format(item.investimento) }}</strong>
+                            {% if item.acquisto.costi_accessori > 0 %}
+                                <br><small class="text-muted">
+                                    (inc. € {{ "%.2f"|format(item.acquisto.costi_accessori) }} accessori)
+                                </small>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if item.ricavi > 0 %}
+                                <strong class="text-success">€ {{ "%.2f"|format(item.ricavi) }}</strong>
+                            {% else %}
+                                <span class="text-muted">€ 0.00</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <div>
+                                <strong class="{% if item.margine_percentuale < 0 %}text-danger{% elif item.margine_percentuale < 10 %}text-warning{% else %}text-secondary{% endif %}">
+                                    {{ "%.1f"|format(item.margine_percentuale) }}%
+                                </strong>
+                            </div>
+                            <small class="{% if item.margine >= 0 %}text-success{% else %}text-danger{% endif %}">
+                                € {{ "%.2f"|format(item.margine) }}
+                            </small>
+                        </td>
+                        <td>
+                            {% if item.margine_percentuale < 0 %}
+                                <span class="text-danger">
+                                    <i class="bi bi-x-circle"></i> Perdita
+                                </span>
+                            {% elif item.margine_percentuale < 10 %}
+                                <span class="text-warning">
+                                    <i class="bi bi-exclamation-triangle"></i> Margine molto basso
+                                </span>
+                            {% else %}
+                                <span class="text-secondary">
+                                    <i class="bi bi-dash-circle"></i> Sotto obiettivo
+                                </span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <div class="small">
+                                {% if item.margine_percentuale < 0 %}
+                                    • Analizza costi nascosti<br>
+                                    • Rivedi fornitore<br>
+                                    • Considera svalutazione
+                                {% elif item.margine_percentuale < 10 %}
+                                    • Ridurre costi accessori<br>
+                                    • Aumentare prezzi vendita<br>
+                                    • Cambiare fornitore
+                                {% else %}
+                                    • Ottimizzare canale vendita<br>
+                                    • Negoziare commissioni<br>
+                                    • Valutare fornitori migliori
+                                {% endif %}
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Nessun problema -->
+{% if not vendite_lente and not margini_critici %}
+<div class="card">
+    <div class="card-body text-center py-5">
+        <i class="bi bi-check-circle-fill fs-1 text-success"></i>
+        <h4 class="mt-3 text-success">Nessun problema rilevato!</h4>
+        <p class="text-muted">Tutte le vendite sono veloci e i margini sono buoni.</p>
+        <a href="/performance" class="btn btn-success">
+            <i class="bi bi-speedometer"></i> Visualizza Performance
+        </a>
+    </div>
+</div>
+{% endif %}
+
+<!-- Analisi e raccomandazioni -->
+{% if vendite_lente or margini_critici %}
+<div class="row mt-4">
+    <div class="col-md-6">
+        <div class="card border-primary">
+            <div class="card-header bg-primary text-white">
+                <h6 class="mb-0"><i class="bi bi-lightbulb"></i> Analisi Cause</h6>
+            </div>
+            <div class="card-body">
+                <h6>Possibili cause dei problemi:</h6>
+                <ul class="small">
+                    <li><strong>Prezzi troppo alti:</strong> Confronta con mercato</li>
+                    <li><strong>Canali sbagliati:</strong> Prova altre piattaforme</li>
+                    <li><strong>Costi nascosti:</strong> Rivedi spese accessorie</li>
+                    <li><strong>Prodotti poco richiesti:</strong> Valuta domanda di mercato</li>
+                    <li><strong>Descrizioni inadeguate:</strong> Migliora listing</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-6">
+        <div class="card border-success">
+            <div class="card-header bg-success text-white">
+                <h6 class="mb-0"><i class="bi bi-gear"></i> Azioni Consigliate</h6>
+            </div>
+            <div class="card-body">
+                <h6>Priorità di intervento:</h6>
+                <ol class="small">
+                    <li><strong>Perdite immediate:</strong> Stop vendita o svalutazione</li>
+                    <li><strong>Vendite lente >60 giorni:</strong> Riduzione prezzo urgente</li>
+                    <li><strong>Margini <10%:</strong> Rivedi costi e fornitori</li>
+                    <li><strong>Vendite lente <60 giorni:</strong> Cambia strategia</li>
+                    <li><strong>Margini 10-25%:</strong> Ottimizzazioni graduali</li>
+                </ol>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Dashboard azioni rapide -->
+<div class="card mt-4 border-warning">
+    <div class="card-header bg-warning text-dark">
+        <h6 class="mb-0"><i class="bi bi-lightning-fill"></i> Azioni Rapide</h6>
+    </div>
+    <div class="card-body">
+        <div class="row">
+            <div class="col-md-4">
+                <h6>Vendite Lente</h6>
+                <button onclick="applicaScontoGenerale()" class="btn btn-outline-danger btn-sm">
+                    <i class="bi bi-percent"></i> Applica Sconto 10%
+                </button>
+            </div>
+            <div class="col-md-4">
+                <h6>Margini Critici</h6>
+                <a href="/statistiche" class="btn btn-outline-warning btn-sm">
+                    <i class="bi bi-graph-up"></i> Analisi Dettagliata
+                </a>
+            </div>
+            <div class="col-md-4">
+                <h6>Report Completo</h6>
+                <button onclick="esportaProblemi()" class="btn btn-outline-info btn-sm">
+                    <i class="bi bi-download"></i> Esporta Problemi
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{% block scripts %}
+<script>
+function applicaScontoGenerale() {
+    if (confirm('Applicare uno sconto del 10% a tutti i prodotti con vendite lente? Questa è una simulazione.')) {
+        alert('Funzionalità in sviluppo - Integrazione con canali di vendita necessaria');
+    }
+}
+
+function esportaProblemi() {
+    // Simulazione esportazione
+    const problemiData = {
+        vendite_lente: {{ vendite_lente|length if vendite_lente else 0 }},
+        margini_critici: {{ margini_critici|length if margini_critici else 0 }},
+        data_export: new Date().toISOString()
+    };
+    
+    const dataStr = JSON.stringify(problemiData, null, 2);
+    const dataBlob = new Blob([dataStr], {type:'application/json'});
+    
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(dataBlob);
+    link.download = 'problemi_' + new Date().toISOString().split('T')[0] + '.json';
+    link.click();
+}
+</script>
+{% endblock %}
+{% endblock %}

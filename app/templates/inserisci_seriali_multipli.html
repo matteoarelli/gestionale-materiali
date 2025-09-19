@@ -1,0 +1,422 @@
+{% extends "base.html" %}
+
+{% block title %}Inserisci Seriali in Blocco - Gestionale Materiali{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-10 mx-auto">
+        <div class="card">
+            <div class="card-header bg-warning text-dark">
+                <h5 class="mb-0">
+                    <i class="bi bi-upc-scan"></i> Inserisci Seriali in Blocco
+                </h5>
+                <p class="mb-0">Gestione rapida di tutti i prodotti senza seriali</p>
+            </div>
+            <div class="card-body">
+                <div class="alert alert-info mb-4">
+                    <h6><i class="bi bi-info-circle"></i> Informazioni:</h6>
+                    <ul class="mb-0">
+                        <li>Prodotti senza seriali raggruppati per acquisto</li>
+                        <li>Premi <kbd>Tab</kbd> o <kbd>Enter</kbd> per passare al campo successivo</li>
+                        <li>Lascia vuoto per mantenere il prodotto senza seriale</li>
+                        <li>I seriali devono essere univoci nel sistema</li>
+                    </ul>
+                </div>
+
+                <form method="POST" action="/da-gestire/salva-seriali-multipli" id="serialiMultipliForm">
+                    <!-- Raggruppamento per acquisto -->
+                    {% for acquisto_id, gruppo in prodotti_raggruppati.items() %}
+                    <div class="card mb-4 border-primary">
+                        <div class="card-header bg-light">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div>
+                                    <h6 class="mb-1">
+                                        <i class="bi bi-box"></i> {{ gruppo.acquisto.id_acquisto_univoco }}
+                                    </h6>
+                                    <small class="text-muted">
+                                        {{ gruppo.acquisto.venditore }} - {{ gruppo.acquisto.dove_acquistato }}
+                                        {% if gruppo.acquisto.data_consegna %}
+                                            | Arrivato: {{ gruppo.acquisto.data_consegna.strftime('%d/%m/%Y') }}
+                                        {% endif %}
+                                    </small>
+                                </div>
+                                <div>
+                                    <span class="badge bg-warning">{{ gruppo.prodotti|length }} senza seriali</span>
+                                    <span class="badge bg-info">€{{ "%.2f"|format(gruppo.acquisto.costo_totale) }}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div class="row">
+                                {% for prodotto in gruppo.prodotti %}
+                                <div class="col-md-6 mb-3">
+                                    <div class="card border-secondary">
+                                        <div class="card-body p-3">
+                                            <div class="mb-2">
+                                                <strong class="text-primary">Prodotto {{ loop.index }}</strong>
+                                                {% if (now.date() - gruppo.acquisto.data_consegna).days > 7 if gruppo.acquisto.data_consegna else false %}
+                                                    <span class="badge bg-danger ms-2" title="Priorità alta - arrivato da più di 7 giorni">
+                                                        Alta Priorità
+                                                    </span>
+                                                {% endif %}
+                                            </div>
+                                            
+                                            <div class="mb-2">
+                                                <label class="form-label text-muted small">Descrizione:</label>
+                                                <div class="small">{{ prodotto.prodotto_descrizione }}</div>
+                                                {% if prodotto.note_prodotto %}
+                                                    <div class="small text-muted">Note: {{ prodotto.note_prodotto }}</div>
+                                                {% endif %}
+                                            </div>
+                                            
+                                            <input type="hidden" name="prodotti[{{ loop.index0 + outer_loop.index0 * 100 }}][id]" value="{{ prodotto.id }}">
+                                            
+                                            <div class="input-group">
+                                                <span class="input-group-text bg-warning text-dark">
+                                                    <i class="bi bi-upc-scan"></i>
+                                                </span>
+                                                <input type="text" 
+                                                       class="form-control seriale-input" 
+                                                       name="prodotti[{{ loop.index0 + outer_loop.index0 * 100 }}][seriale]" 
+                                                       placeholder="Inserisci seriale..."
+                                                       data-prodotto-id="{{ prodotto.id }}"
+                                                       data-descrizione="{{ prodotto.prodotto_descrizione }}"
+                                                       autocomplete="off">
+                                                <button type="button" class="btn btn-outline-secondary" 
+                                                        onclick="generaSerialeFittizio(this)" title="Genera seriale fittizio">
+                                                    <i class="bi bi-magic"></i>
+                                                </button>
+                                            </div>
+                                            
+                                            <div class="invalid-feedback"></div>
+                                            
+                                            <div class="small text-muted mt-2">
+                                                Costo unitario: €{{ "%.2f"|format(gruppo.acquisto.costo_totale / gruppo.acquisto.numero_prodotti) }}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                {% if loop.index is divisibleby(2) %}
+                                    </div><div class="row">
+                                {% endif %}
+                                {% endfor %}
+                            </div>
+                        </div>
+                    </div>
+                    {% set outer_loop = loop %}
+                    {% endfor %}
+
+                    <!-- Nessun prodotto senza seriali -->
+                    {% if not prodotti_raggruppati %}
+                    <div class="alert alert-success">
+                        <i class="bi bi-check-circle"></i> Tutti i prodotti hanno già un seriale assegnato!
+                        <br><br>
+                        <a href="/da-gestire" class="btn btn-success">
+                            <i class="bi bi-arrow-left"></i> Torna a Da Gestire
+                        </a>
+                    </div>
+                    {% endif %}
+
+                    <!-- Azioni -->
+                    {% if prodotti_raggruppati %}
+                    <div class="d-grid gap-2 d-md-flex justify-content-md-between mt-4">
+                        <div>
+                            <button type="button" class="btn btn-outline-info me-2" onclick="generaTuttiSeriali()">
+                                <i class="bi bi-magic"></i> Genera Tutti i Seriali Fittizi
+                            </button>
+                            <button type="button" class="btn btn-outline-secondary" onclick="pulisciTutti()">
+                                <i class="bi bi-x-circle"></i> Pulisci Tutti
+                            </button>
+                        </div>
+                        <div>
+                            <a href="/da-gestire" class="btn btn-secondary me-2">
+                                <i class="bi bi-arrow-left"></i> Annulla
+                            </a>
+                            <button type="submit" class="btn btn-warning">
+                                <i class="bi bi-save"></i> Salva Seriali (<span id="contatoreSerialiInseriti">0</span>)
+                            </button>
+                        </div>
+                    </div>
+                    {% endif %}
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Progress bar -->
+<div class="fixed-bottom p-3" style="z-index: 1030;">
+    <div class="card shadow-sm">
+        <div class="card-body p-2">
+            <div class="d-flex justify-content-between align-items-center">
+                <small class="text-muted">Progresso completamento:</small>
+                <small class="text-muted" id="progressoTesto">0 / {{ total_prodotti if total_prodotti else 0 }} completati</small>
+            </div>
+            <div class="progress mt-1" style="height: 6px;">
+                <div class="progress-bar bg-warning" id="progressoBar" style="width: 0%"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% block scripts %}
+<script>
+let totalProdotti = {{ total_prodotti if total_prodotti else 0 }};
+let serialiInseriti = 0;
+
+document.addEventListener('DOMContentLoaded', function() {
+    // Focus sul primo campo
+    const primoInput = document.querySelector('.seriale-input');
+    if (primoInput) {
+        primoInput.focus();
+    }
+    
+    // Setup degli eventi per tutti gli input seriali
+    setupSerialiInputs();
+    
+    // Aggiorna il progresso iniziale
+    aggiornaProgresso();
+});
+
+function setupSerialiInputs() {
+    const inputs = document.querySelectorAll('.seriale-input');
+    
+    inputs.forEach((input, index) => {
+        // Navigazione con Tab/Enter
+        input.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' || e.key === 'Tab') {
+                e.preventDefault();
+                const nextIndex = index + 1;
+                if (nextIndex < inputs.length) {
+                    inputs[nextIndex].focus();
+                } else {
+                    // Ultimo campo, focus su pulsante salva
+                    document.querySelector('button[type="submit"]').focus();
+                }
+            }
+        });
+        
+        // Validazione in tempo reale
+        input.addEventListener('input', function() {
+            validaSeriale(this);
+            aggiornaProgresso();
+        });
+        
+        // Auto-completamento suggerimenti
+        input.addEventListener('focus', function() {
+            const descrizione = this.dataset.descrizione;
+            const suggerimento = generaSuggerimentoSeriale(descrizione);
+            if (suggerimento && !this.value) {
+                this.placeholder = `Suggerimento: ${suggerimento}`;
+            }
+        });
+    });
+}
+
+function validaSeriale(input) {
+    const valore = input.value.trim();
+    const feedbackDiv = input.parentNode.parentNode.querySelector('.invalid-feedback');
+    
+    // Reset stato
+    input.classList.remove('is-valid', 'is-invalid');
+    feedbackDiv.textContent = '';
+    
+    if (valore.length === 0) {
+        return; // Campo vuoto è valido
+    }
+    
+    // Controlla lunghezza minima
+    if (valore.length < 3) {
+        input.classList.add('is-invalid');
+        feedbackDiv.textContent = 'Seriale troppo corto (minimo 3 caratteri)';
+        return;
+    }
+    
+    // Controlla caratteri non validi
+    if (!/^[A-Za-z0-9\-_]+$/.test(valore)) {
+        input.classList.add('is-invalid');
+        feedbackDiv.textContent = 'Seriale contiene caratteri non validi';
+        return;
+    }
+    
+    // Controlla duplicati negli altri campi
+    const altriInputs = document.querySelectorAll('.seriale-input');
+    let duplicato = false;
+    
+    altriInputs.forEach(altroInput => {
+        if (altroInput !== input && altroInput.value.trim().toLowerCase() === valore.toLowerCase()) {
+            duplicato = true;
+        }
+    });
+    
+    if (duplicato) {
+        input.classList.add('is-invalid');
+        feedbackDiv.textContent = 'Seriale duplicato in questa pagina';
+        return;
+    }
+    
+    // Tutto ok
+    input.classList.add('is-valid');
+}
+
+function generaSerialeFittizio(button) {
+    const input = button.parentNode.querySelector('input');
+    const prodottoId = input.dataset.prodottoId;
+    const descrizione = input.dataset.descrizione;
+    
+    // Genera seriale basato su descrizione e timestamp
+    const prefisso = estraiPrefisso(descrizione);
+    const timestamp = Date.now().toString().slice(-6);
+    const serialeFittizio = `${prefisso}${timestamp}`;
+    
+    input.value = serialeFittizio;
+    validaSeriale(input);
+    aggiornaProgresso();
+    
+    // Focus successivo
+    const inputs = Array.from(document.querySelectorAll('.seriale-input'));
+    const currentIndex = inputs.indexOf(input);
+    if (currentIndex < inputs.length - 1) {
+        inputs[currentIndex + 1].focus();
+    }
+}
+
+function estraiPrefisso(descrizione) {
+    // Estrai prefisso intelligente dalla descrizione
+    if (descrizione.toLowerCase().includes('iphone')) return 'IPH';
+    if (descrizione.toLowerCase().includes('ipad')) return 'IPD';
+    if (descrizione.toLowerCase().includes('macbook')) return 'MBK';
+    if (descrizione.toLowerCase().includes('samsung')) return 'SAM';
+    if (descrizione.toLowerCase().includes('xiaomi')) return 'XIA';
+    if (descrizione.toLowerCase().includes('huawei')) return 'HUA';
+    
+    // Fallback: prime 3 lettere maiuscole
+    return descrizione.replace(/[^A-Za-z]/g, '').substring(0, 3).toUpperCase() || 'DEV';
+}
+
+function generaSuggerimentoSeriale(descrizione) {
+    const prefisso = estraiPrefisso(descrizione);
+    const numero = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+    return `${prefisso}${numero}`;
+}
+
+function generaTuttiSeriali() {
+    if (!confirm('Generare seriali fittizi per tutti i prodotti senza seriale?')) return;
+    
+    const inputs = document.querySelectorAll('.seriale-input');
+    inputs.forEach(input => {
+        if (!input.value.trim()) {
+            const button = input.parentNode.querySelector('button');
+            generaSerialeFittizio(button);
+        }
+    });
+}
+
+function pulisciTutti() {
+    if (!confirm('Cancellare tutti i seriali inseriti?')) return;
+    
+    const inputs = document.querySelectorAll('.seriale-input');
+    inputs.forEach(input => {
+        input.value = '';
+        input.classList.remove('is-valid', 'is-invalid');
+        input.parentNode.parentNode.querySelector('.invalid-feedback').textContent = '';
+    });
+    
+    aggiornaProgresso();
+}
+
+function aggiornaProgresso() {
+    const inputs = document.querySelectorAll('.seriale-input');
+    const completati = Array.from(inputs).filter(input => input.value.trim() && input.classList.contains('is-valid')).length;
+    
+    serialiInseriti = completati;
+    
+    // Aggiorna UI
+    document.getElementById('contatoreSerialiInseriti').textContent = completati;
+    document.getElementById('progressoTesto').textContent = `${completati} / ${totalProdotti} completati`;
+    
+    const percentuale = totalProdotti > 0 ? (completati / totalProdotti * 100) : 0;
+    document.getElementById('progressoBar').style.width = `${percentuale}%`;
+    
+    // Cambia colore progress bar
+    const progressBar = document.getElementById('progressoBar');
+    if (percentuale === 100) {
+        progressBar.className = 'progress-bar bg-success';
+    } else if (percentuale >= 50) {
+        progressBar.className = 'progress-bar bg-warning';
+    } else {
+        progressBar.className = 'progress-bar bg-info';
+    }
+}
+
+// Validazione form prima del submit
+document.getElementById('serialiMultipliForm').addEventListener('submit', function(e) {
+    const inputs = document.querySelectorAll('.seriale-input');
+    let errori = 0;
+    
+    inputs.forEach(input => {
+        if (input.value.trim() && input.classList.contains('is-invalid')) {
+            errori++;
+        }
+    });
+    
+    if (errori > 0) {
+        e.preventDefault();
+        alert(`Ci sono ${errori} errori nei seriali. Correggili prima di salvare.`);
+        return;
+    }
+    
+    if (serialiInseriti === 0) {
+        if (!confirm('Non hai inserito nessun seriale. Continuare comunque?')) {
+            e.preventDefault();
+            return;
+        }
+    }
+    
+    // Mostra loading
+    const submitBtn = this.querySelector('button[type="submit"]');
+    submitBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> Salvando...';
+    submitBtn.disabled = true;
+});
+
+// Salva progresso in localStorage
+window.addEventListener('beforeunload', function() {
+    const inputs = document.querySelectorAll('.seriale-input');
+    const dati = {};
+    
+    inputs.forEach(input => {
+        if (input.value.trim()) {
+            dati[input.name] = input.value.trim();
+        }
+    });
+    
+    if (Object.keys(dati).length > 0) {
+        localStorage.setItem('serialiMultipli_temp', JSON.stringify(dati));
+    }
+});
+
+// Ripristina progresso da localStorage
+window.addEventListener('load', function() {
+    const datiSalvati = localStorage.getItem('serialiMultipli_temp');
+    if (datiSalvati) {
+        try {
+            const dati = JSON.parse(datiSalvati);
+            Object.keys(dati).forEach(nome => {
+                const input = document.querySelector(`input[name="${nome}"]`);
+                if (input) {
+                    input.value = dati[nome];
+                    validaSeriale(input);
+                }
+            });
+            aggiornaProgresso();
+            
+            // Pulisci dati salvati dopo il ripristino
+            localStorage.removeItem('serialiMultipli_temp');
+        } catch (e) {
+            console.log('Errore ripristino dati:', e);
+        }
+    }
+});
+</script>
+{% endblock %}
+{% endblock %}

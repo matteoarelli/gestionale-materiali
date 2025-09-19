@@ -8,6 +8,7 @@ from sqlalchemy import and_, or_, func
 from typing import List, Optional
 import uvicorn
 from datetime import datetime, date, timedelta
+import re
 
 from app.database import get_db, engine, Base
 from app.models.models import Acquisto, Vendita, Prodotto
@@ -77,13 +78,444 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
         "ultime_vendite": ultime_vendite
     })
 
+@app.get("/da-gestire", response_class=HTMLResponse)
+async def da_gestire(request: Request, db: Session = Depends(get_db)):
+    """Pagina Da Gestire - elementi che richiedono attenzione"""
+    
+    # Prodotti senza seriali (solo quelli non venduti)
+    prodotti_senza_seriali = db.query(Prodotto).filter(
+        Prodotto.seriale.is_(None),
+        ~Prodotto.vendite.any()  # Non venduti
+    ).options(joinedload(Prodotto.acquisto)).all()
+    
+    # Acquisti non ancora arrivati
+    acquisti_non_arrivati = db.query(Acquisto).filter(
+        Acquisto.data_consegna.is_(None)
+    ).options(joinedload(Acquisto.prodotti)).all()
+    
+    # Calcola giorni di attesa per acquisti non arrivati
+    now = datetime.now()
+    for acquisto in acquisti_non_arrivati:
+        if acquisto.data_pagamento:
+            acquisto.giorni_attesa = (now.date() - acquisto.data_pagamento).days
+        else:
+            acquisto.giorni_attesa = (now.date() - acquisto.created_at.date()).days
+    
+    return templates.TemplateResponse("da_gestire.html", {
+        "request": request,
+        "prodotti_senza_seriali": prodotti_senza_seriali,
+        "acquisti_non_arrivati": acquisti_non_arrivati,
+        "now": now
+    })
+
+@app.post("/da-gestire/segna-tutti-arrivati")
+async def segna_tutti_arrivati(db: Session = Depends(get_db)):
+    """Segna tutti gli acquisti non arrivati come arrivati oggi"""
+    
+    acquisti_non_arrivati = db.query(Acquisto).filter(
+        Acquisto.data_consegna.is_(None)
+    ).all()
+    
+    count = 0
+    for acquisto in acquisti_non_arrivati:
+        acquisto.data_consegna = date.today()
+        count += 1
+    
+    db.commit()
+    
+    return {"message": f"Segnati {count} acquisti come arrivati oggi"}
+
+@app.get("/da-gestire/inserisci-seriali-multipli", response_class=HTMLResponse)
+async def inserisci_seriali_multipli_form(request: Request, db: Session = Depends(get_db)):
+    """Form per inserimento seriali in blocco"""
+    
+    # Ottieni tutti i prodotti senza seriali (non venduti)
+    prodotti_senza_seriali = db.query(Prodotto).filter(
+        Prodotto.seriale.is_(None),
+        ~Prodotto.vendite.any()  # Non venduti
+    ).options(joinedload(Prodotto.acquisto)).all()
+    
+    # Raggruppa per acquisto
+    prodotti_raggruppati = {}
+    for prodotto in prodotti_senza_seriali:
+        acquisto_id = prodotto.acquisto.id
+        if acquisto_id not in prodotti_raggruppati:
+            prodotti_raggruppati[acquisto_id] = {
+                'acquisto': prodotto.acquisto,
+                'prodotti': []
+            }
+        prodotti_raggruppati[acquisto_id]['prodotti'].append(prodotto)
+    
+    # Ordina per priorità (acquisti arrivati da più tempo prima)
+    prodotti_raggruppati = dict(sorted(
+        prodotti_raggruppati.items(),
+        key=lambda x: x[1]['acquisto'].data_consegna or date.min,
+        reverse=False
+    ))
+    
+    total_prodotti = len(prodotti_senza_seriali)
+    
+    return templates.TemplateResponse("inserisci_seriali_multipli.html", {
+        "request": request,
+        "prodotti_raggruppati": prodotti_raggruppati,
+        "total_prodotti": total_prodotti,
+        "now": datetime.now()
+    })
+
+@app.post("/da-gestire/salva-seriali-multipli")
+async def salva_seriali_multipli(request: Request, db: Session = Depends(get_db)):
+    """Salva i seriali inseriti in blocco"""
+    
+    form_data = await request.form()
+    
+    # Raccogli i dati dei seriali
+    seriali_data = {}
+    for key, value in form_data.items():
+        if key.startswith('prodotti[') and value.strip():
+            match = re.match(r'prodotti\[(\d+)\]\[(\w+)\]', key)
+            if match:
+                index = int(match.group(1))
+                field = match.group(2)
+                
+                if index not in seriali_data:
+                    seriali_data[index] = {}
+                seriali_data[index][field] = value.strip()
+    
+    # Aggiorna i seriali
+    seriali_inseriti = 0
+    seriali_duplicati = 0
+    errori = []
+    
+    for index, dati in seriali_data.items():
+        prodotto_id = dati.get('id')
+        nuovo_seriale = dati.get('seriale', '').strip()
+        
+        if not prodotto_id or not nuovo_seriale:
+            continue
+            
+        try:
+            # Verifica che il seriale non esista già
+            if db.query(Prodotto).filter(Prodotto.seriale == nuovo_seriale).first():
+                errori.append(f"Seriale {nuovo_seriale} già esistente nel database")
+                seriali_duplicati += 1
+                continue
+            
+            # Aggiorna il prodotto
+            prodotto = db.query(Prodotto).filter(Prodotto.id == int(prodotto_id)).first()
+            if prodotto and not prodotto.seriale:  # Solo se non ha già un seriale
+                prodotto.seriale = nuovo_seriale
+                seriali_inseriti += 1
+                
+        except Exception as e:
+            errori.append(f"Errore prodotto ID {prodotto_id}: {str(e)}")
+    
+    try:
+        db.commit()
+        
+        # Redirect con messaggio di successo
+        if seriali_inseriti > 0:
+            return RedirectResponse(
+                url=f"/da-gestire?seriali_inserted={seriali_inseriti}", 
+                status_code=303
+            )
+        else:
+            return RedirectResponse(
+                url=f"/da-gestire?errori={len(errori)}", 
+                status_code=303
+            )
+            
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Errore nel salvataggio: {str(e)}")
+
+@app.post("/da-gestire/inserisci-seriali-multipli", response_class=RedirectResponse)
+async def redirect_to_seriali_multipli():
+    """Redirect POST to GET per il form seriali multipli"""
+    return RedirectResponse(url="/da-gestire/inserisci-seriali-multipli", status_code=303)
+
+@app.get("/problemi", response_class=HTMLResponse)
+async def problemi(request: Request, db: Session = Depends(get_db)):
+    """Pagina Problemi - vendite lente e margini critici"""
+    
+    now = datetime.now()
+    
+    # Vendite lente: prodotti in stock da più di 30 giorni
+    vendite_lente = []
+    
+    # Query per prodotti non venduti con acquisti arrivati
+    prodotti_in_stock = db.query(Prodotto).filter(
+        ~Prodotto.vendite.any(),  # Non venduti
+        Prodotto.acquisto.has(Acquisto.data_consegna.isnot(None))  # Acquisto arrivato
+    ).options(joinedload(Prodotto.acquisto)).all()
+    
+    for prodotto in prodotti_in_stock:
+        giorni_stock = (now.date() - prodotto.acquisto.data_consegna).days
+        if giorni_stock > 30:
+            # Calcola costo unitario
+            costo_unitario = prodotto.acquisto.costo_totale / prodotto.acquisto.numero_prodotti
+            
+            vendite_lente.append({
+                'prodotto': prodotto,
+                'acquisto': prodotto.acquisto,
+                'giorni_stock': giorni_stock,
+                'costo_unitario': costo_unitario
+            })
+    
+    # Margini critici: acquisti con marginalità < 25% (solo vendite complete o parziali)
+    margini_critici = []
+    
+    # Query per acquisti con almeno una vendita
+    acquisti_con_vendite = db.query(Acquisto).filter(
+        Acquisto.prodotti.any(Prodotto.vendite.any())
+    ).options(
+        joinedload(Acquisto.prodotti).joinedload(Prodotto.vendite)
+    ).all()
+    
+    for acquisto in acquisti_con_vendite:
+        # Filtra solo prodotti business (non fotorip)
+        prodotti_business = [p for p in acquisto.prodotti 
+                           if not any(v.canale_vendita == "RIPARAZIONI" for v in p.vendite)]
+        
+        if not prodotti_business:
+            continue
+            
+        prodotti_totali = len(prodotti_business)
+        prodotti_venduti = len([p for p in prodotti_business if p.vendite])
+        
+        # Calcola ricavi (solo da prodotti business)
+        ricavi_business = sum(
+            sum(v.ricavo_netto for v in p.vendite if v.canale_vendita != "RIPARAZIONI") 
+            for p in prodotti_business if p.vendite
+        )
+        
+        # Calcola investimento proporzionale (solo parte business)
+        costo_per_prodotto = acquisto.costo_totale / len(acquisto.prodotti)
+        investimento_business = costo_per_prodotto * prodotti_totali
+        
+        margine = ricavi_business - investimento_business
+        margine_percentuale = (margine / investimento_business * 100) if investimento_business > 0 else 0
+        
+        if margine_percentuale < 25:
+            margini_critici.append({
+                'acquisto': acquisto,
+                'prodotti_totali': prodotti_totali,
+                'prodotti_venduti': prodotti_venduti,
+                'vendita_completa': prodotti_venduti == prodotti_totali,
+                'investimento': investimento_business,
+                'ricavi': ricavi_business,
+                'margine': margine,
+                'margine_percentuale': margine_percentuale
+            })
+    
+    # Ordina per gravità
+    vendite_lente.sort(key=lambda x: x['giorni_stock'], reverse=True)
+    margini_critici.sort(key=lambda x: x['margine_percentuale'])
+    
+    problemi_count = len(vendite_lente) + len(margini_critici)
+    
+    return templates.TemplateResponse("problemi.html", {
+        "request": request,
+        "vendite_lente": vendite_lente,
+        "margini_critici": margini_critici,
+        "problemi_count": problemi_count
+    })
+
+def _calcola_metriche_acquisto(acquisto, now):
+    """Calcola metriche aggiuntive per un acquisto"""
+    
+    # Prodotti senza seriali
+    acquisto.prodotti_senza_seriali = len([p for p in acquisto.prodotti if not p.seriale])
+    
+    # Giorni in stock/attesa
+    if acquisto.data_consegna:
+        acquisto.giorni_stock = (now.date() - acquisto.data_consegna).days
+        acquisto.giorni_attesa = None
+    else:
+        acquisto.giorni_stock = None
+        if acquisto.data_pagamento:
+            acquisto.giorni_attesa = (now.date() - acquisto.data_pagamento).days
+        else:
+            acquisto.giorni_attesa = (now.date() - acquisto.created_at.date()).days
+    
+    # Score di urgenza (0-100)
+    urgenza_score = 0
+    
+    # Penalità per non arrivato
+    if not acquisto.data_consegna and hasattr(acquisto, 'giorni_attesa'):
+        if acquisto.giorni_attesa > 21:
+            urgenza_score += 40
+        elif acquisto.giorni_attesa > 14:
+            urgenza_score += 30
+        elif acquisto.giorni_attesa > 7:
+            urgenza_score += 20
+    
+    # Penalità per seriali mancanti
+    if acquisto.prodotti_senza_seriali > 0:
+        urgenza_score += min(30, acquisto.prodotti_senza_seriali * 10)
+    
+    # Penalità per vendite lente
+    if acquisto.giorni_stock and acquisto.giorni_stock > 30:
+        prodotti_non_venduti = len([p for p in acquisto.prodotti if not p.vendite])
+        if prodotti_non_venduti > 0:
+            urgenza_score += min(30, (acquisto.giorni_stock - 30) // 15 * 10)
+    
+    acquisto.urgenza_score = min(100, urgenza_score)
+    
+    # Lista problemi testuali
+    problemi = []
+    if not acquisto.data_consegna:
+        problemi.append("Non arrivato")
+    if acquisto.prodotti_senza_seriali > 0:
+        problemi.append(f"{acquisto.prodotti_senza_seriali} senza seriali")
+    if acquisto.giorni_stock:
+        if acquisto.giorni_stock > 60 and not acquisto.completamente_venduto:
+            problemi.append("Vendita molto lenta")
+        elif acquisto.giorni_stock > 30 and not acquisto.completamente_venduto:
+            problemi.append("Vendita lenta")
+    
+    acquisto.problemi_list = problemi
+    acquisto.problematico = len(problemi) > 0
+    
+    # Performance score (se ha vendite)
+    if acquisto.prodotti_venduti > 0:
+        performance_score = 50  # Base
+        
+        # Marginalità
+        if acquisto.margine_totale > 0:
+            margine_perc = (acquisto.margine_totale / acquisto.costo_totale * 100)
+            if margine_perc >= 25:
+                performance_score += 30
+            elif margine_perc >= 15:
+                performance_score += 20
+            elif margine_perc >= 5:
+                performance_score += 10
+            else:
+                performance_score -= 10
+        
+        # Velocità di vendita
+        if acquisto.completamente_venduto and acquisto.giorni_stock:
+            if acquisto.giorni_stock <= 30:
+                performance_score += 20
+            elif acquisto.giorni_stock <= 60:
+                performance_score += 10
+            else:
+                performance_score -= 10
+        
+        acquisto.performance_score = max(0, min(100, performance_score))
+    else:
+        acquisto.performance_score = None
+
 @app.get("/acquisti", response_class=HTMLResponse)
 async def lista_acquisti(request: Request, db: Session = Depends(get_db)):
-    """Pagina lista acquisti"""
-    acquisti = db.query(Acquisto).order_by(Acquisto.created_at.desc()).all()
+    """Pagina lista acquisti con filtri avanzati e ordinamento"""
+    
+    # Parametri di filtro dalla query string
+    filtro_stato = request.query_params.get("filtro_stato", "tutti")
+    ordinamento = request.query_params.get("ordinamento", "data_desc") 
+    cerca = request.query_params.get("cerca", "")
+    
+    # Query base con eager loading
+    query = db.query(Acquisto).options(
+        joinedload(Acquisto.prodotti).joinedload(Prodotto.vendite)
+    )
+    
+    # Conta totali per statistiche
+    acquisti_totali = query.count()
+    
+    # Applica filtri di ricerca
+    if cerca:
+        query = query.filter(
+            or_(
+                Acquisto.id_acquisto_univoco.ilike(f"%{cerca}%"),
+                Acquisto.venditore.ilike(f"%{cerca}%"),  
+                Acquisto.dove_acquistato.ilike(f"%{cerca}%"),
+                Acquisto.prodotti.any(Prodotto.prodotto_descrizione.ilike(f"%{cerca}%"))
+            )
+        )
+    
+    # Applica filtri di stato
+    if filtro_stato == "in_stock":
+        # Acquisti con prodotti non venduti
+        query = query.filter(
+            Acquisto.prodotti.any(~Prodotto.vendite.any())
+        )
+    elif filtro_stato == "venduti":
+        # Acquisti completamente venduti
+        query = query.filter(
+            ~Acquisto.prodotti.any(~Prodotto.vendite.any())
+        )
+    elif filtro_stato == "parziali":  
+        # Vendite parziali (almeno uno venduto E almeno uno non venduto)
+        query = query.filter(
+            and_(
+                Acquisto.prodotti.any(Prodotto.vendite.any()),
+                Acquisto.prodotti.any(~Prodotto.vendite.any())
+            )
+        )
+    elif filtro_stato == "senza_seriali":
+        # Acquisti con prodotti senza seriali
+        query = query.filter(
+            Acquisto.prodotti.any(Prodotto.seriale.is_(None))
+        )
+    elif filtro_stato == "non_arrivati":
+        # Acquisti senza data di consegna
+        query = query.filter(Acquisto.data_consegna.is_(None))
+    elif filtro_stato == "problematici":
+        # Acquisti con vari problemi
+        query = query.filter(
+            or_(
+                # Senza seriali
+                Acquisto.prodotti.any(Prodotto.seriale.is_(None)),
+                # Non arrivati
+                Acquisto.data_consegna.is_(None),
+                # Vendite lente (arrivati da >30 giorni ma non venduti completamente)  
+                and_(
+                    Acquisto.data_consegna.isnot(None),
+                    Acquisto.data_consegna < (date.today() - timedelta(days=30)),
+                    Acquisto.prodotti.any(~Prodotto.vendite.any())
+                )
+            )
+        )
+    
+    # Applica ordinamento  
+    if ordinamento == "data_asc":
+        query = query.order_by(Acquisto.created_at.asc())
+    elif ordinamento == "costo_desc":
+        query = query.order_by(
+            (Acquisto.costo_acquisto + func.coalesce(Acquisto.costi_accessori, 0)).desc()
+        )
+    elif ordinamento == "urgenza":
+        # Ordinamento per urgenza: prima problematici
+        query = query.order_by(
+            # Prima: non arrivati
+            Acquisto.data_consegna.is_(None).desc(),
+            # Poi: per data  
+            Acquisto.created_at.desc()
+        )
+    elif ordinamento == "giorni_stock":
+        # Ordinamento per giorni in stock (arrivati da più tempo prima)
+        query = query.order_by(
+            Acquisto.data_consegna.asc().nulls_last()
+        )
+    else:  # data_desc (default)
+        query = query.order_by(Acquisto.created_at.desc())
+    
+    # Esegui query
+    acquisti = query.all()
+    
+    # Aggiungi proprietà calcolate per ogni acquisto
+    now = datetime.now()
+    for acquisto in acquisti:
+        # Calcola metriche aggiuntive per la UI
+        _calcola_metriche_acquisto(acquisto, now)
+    
     return templates.TemplateResponse("acquisti.html", {
         "request": request,
-        "acquisti": acquisti
+        "acquisti": acquisti,
+        "acquisti_totali": acquisti_totali,
+        "filtro_stato": filtro_stato,
+        "ordinamento": ordinamento,  
+        "cerca": cerca
     })
 
 @app.get("/acquisti/nuovo", response_class=HTMLResponse)
@@ -149,7 +581,6 @@ async def crea_acquisto(request: Request, db: Session = Depends(get_db)):
     for key, value in form_data.items():
         if key.startswith('prodotti[') and value.strip():
             # Es: prodotti[0][seriale] -> index=0, field=seriale
-            import re
             match = re.match(r'prodotti\[(\d+)\]\[(\w+)\]', key)
             if match:
                 index = int(match.group(1))
@@ -212,7 +643,6 @@ async def salva_seriali(acquisto_id: int, request: Request, db: Session = Depend
     prodotti_data = {}
     for key, value in form_data.items():
         if key.startswith('prodotti[') and value.strip():
-            import re
             match = re.match(r'prodotti\[(\d+)\]\[(\w+)\]', key)
             if match:
                 index = int(match.group(1))
@@ -312,7 +742,6 @@ async def salva_modifica_acquisto(acquisto_id: int, request: Request, db: Sessio
     
     for key, value in form_data.items():
         if key.startswith('prodotti[') and value.strip():
-            import re
             match = re.match(r'prodotti\[(\d+)\]\[(\w+)\]', key)
             if match:
                 index = int(match.group(1))
@@ -991,58 +1420,6 @@ async def reset_all_data(request: Request, db: Session = Depends(get_db)):
 async def health_check():
     """Health check per Railway"""
     return {"status": "healthy", "timestamp": datetime.now().isoformat()}
-async def reset_all_data(request: Request, db: Session = Depends(get_db)):
-    """ADMIN: Cancella tutti i dati (acquisti, prodotti, vendite)"""
-    try:
-        # Verifica password semplice
-        form_data = await request.form()
-        password = form_data.get("password", "")
-        
-        if password != "reset2024":
-            return {"status": "error", "message": "Password errata"}
-        
-        # Cancella tutto in ordine (vendite -> prodotti -> acquisti)
-        vendite_count = db.query(Vendita).count()
-        prodotti_count = db.query(Prodotto).count()  
-        acquisti_count = db.query(Acquisto).count()
-        
-        db.query(Vendita).delete()
-        db.query(Prodotto).delete()
-        db.query(Acquisto).delete()
-        
-        db.commit()
-        
-        return {
-            "status": "success", 
-            "message": f"Cancellati: {acquisti_count} acquisti, {prodotti_count} prodotti, {vendite_count} vendite"
-        }
-        
-    except Exception as e:
-        db.rollback()
-        return {"status": "error", "message": str(e)}
-
-@app.get("/admin/reset", response_class=HTMLResponse)
-async def reset_form(request: Request):
-    """Form per reset dati"""
-    return """
-    <html>
-    <head><title>Reset Dati</title></head>
-    <body style="font-family: Arial; max-width: 400px; margin: 100px auto; padding: 20px;">
-        <h2>⚠️ Reset Completo Database</h2>
-        <p>Questa azione cancellerà <strong>TUTTI</strong> gli acquisti, prodotti e vendite.</p>
-        <form method="POST" action="/admin/reset-data" onsubmit="return confirm('Sei SICURO di voler cancellare tutto?')">
-            <label>Password di conferma:</label>
-            <input type="password" name="password" placeholder="Inserisci password" required>
-            <br><br>
-            <button type="submit" style="background: red; color: white; padding: 10px 20px; border: none; cursor: pointer;">
-                🗑️ CANCELLA TUTTO
-            </button>
-            <a href="/" style="margin-left: 20px;">Annulla</a>
-        </form>
-        <p><small>Password: <code>reset2024</code></small></p>
-    </body>
-    </html>
-    """
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
