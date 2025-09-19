@@ -492,6 +492,81 @@ async def debug_ip(request: Request):
     except Exception as e:
         return {"error": str(e)}
 
+@app.get("/explore-invoicex")
+async def explore_invoicex_detailed():
+    """Esplorazione dettagliata del database InvoiceX"""
+    try:
+        from sqlalchemy import create_engine, text
+        
+        config_invoicex = {
+            'user': 'ilblogdi_inv2021',
+            'password': 'pWTrEKV}=fF-',
+            'host': 'nl1-ts3.a2hosting.com',
+            'database': 'ilblogdi_invoicex2021',
+            'port': '3306'
+        }
+        
+        connection_string = f"mysql+pymysql://{config_invoicex['user']}:{config_invoicex['password']}@{config_invoicex['host']}:{config_invoicex['port']}/{config_invoicex['database']}"
+        engine = create_engine(connection_string)
+        
+        with engine.connect() as conn:
+            # Ottieni tutte le tabelle
+            tables_result = conn.execute(text("SHOW TABLES"))
+            all_tables = [row[0] for row in tables_result.fetchall()]
+            
+            # Cerca tabelle che probabilmente contengono fatture/vendite
+            target_keywords = ['fattur', 'invoice', 'documen', 'righe', 'testata', 'corpo', 'dettagl']
+            
+            detailed_tables = []
+            
+            for table in all_tables:
+                if any(keyword in table.lower() for keyword in target_keywords):
+                    try:
+                        # Struttura tabella
+                        structure = conn.execute(text(f"DESCRIBE {table}"))
+                        columns = [{"name": col[0], "type": col[1]} for col in structure.fetchall()]
+                        
+                        # Conta righe
+                        count_result = conn.execute(text(f"SELECT COUNT(*) FROM {table}"))
+                        count = count_result.fetchone()[0]
+                        
+                        # Se ha dati, prendi un campione
+                        sample_data = []
+                        if count > 0:
+                            sample_result = conn.execute(text(f"SELECT * FROM {table} LIMIT 2"))
+                            samples = sample_result.fetchall()
+                            
+                            for sample in samples:
+                                row_data = {}
+                                for i, col in enumerate(columns):
+                                    value = sample[i]
+                                    # Converti in stringa se necessario per JSON
+                                    if value is not None:
+                                        row_data[col["name"]] = str(value)
+                                    else:
+                                        row_data[col["name"]] = None
+                                sample_data.append(row_data)
+                        
+                        detailed_tables.append({
+                            "name": table,
+                            "columns": columns,
+                            "row_count": count,
+                            "sample_data": sample_data
+                        })
+                        
+                    except Exception as e:
+                        continue
+            
+            return {
+                "status": "success",
+                "total_tables": len(all_tables),
+                "detailed_tables": detailed_tables,
+                "table_names": [t["name"] for t in detailed_tables]
+            }
+            
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
 @app.get("/test-invoicex")
 async def test_invoicex_connection():
     """Test connessione InvoiceX via web"""
