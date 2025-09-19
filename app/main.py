@@ -369,14 +369,57 @@ async def salva_modifica_acquisto(acquisto_id: int, request: Request, db: Sessio
     
     return RedirectResponse(url="/acquisti", status_code=303)
 
-@app.get("/vendite", response_class=HTMLResponse)
-async def lista_vendite(request: Request, db: Session = Depends(get_db)):
-    """Pagina lista vendite"""
-    vendite = db.query(Vendita).options(joinedload(Vendita.prodotto)).order_by(Vendita.created_at.desc()).all()
-    return templates.TemplateResponse("vendite.html", {
+@app.get("/vendite/{vendita_id}/modifica", response_class=HTMLResponse)
+async def modifica_vendita_form(vendita_id: int, request: Request, db: Session = Depends(get_db)):
+    """Form per modificare una vendita"""
+    vendita = db.query(Vendita).options(joinedload(Vendita.prodotto)).filter(Vendita.id == vendita_id).first()
+    if not vendita:
+        raise HTTPException(status_code=404, detail="Vendita non trovata")
+    
+    return templates.TemplateResponse("modifica_vendita.html", {
         "request": request,
-        "vendite": vendite
+        "vendita": vendita
     })
+
+@app.post("/vendite/{vendita_id}/modifica")
+async def salva_modifica_vendita(vendita_id: int, request: Request, db: Session = Depends(get_db)):
+    """Salva le modifiche di una vendita"""
+    
+    vendita = db.query(Vendita).filter(Vendita.id == vendita_id).first()
+    if not vendita:
+        raise HTTPException(status_code=404, detail="Vendita non trovata")
+    
+    form_data = await request.form()
+    
+    # Aggiorna dati vendita
+    vendita.canale_vendita = form_data.get("canale_vendita", "").strip()
+    vendita.prezzo_vendita = float(form_data.get("prezzo_vendita", 0))
+    vendita.commissioni = float(form_data.get("commissioni", 0))
+    vendita.note_vendita = form_data.get("note_vendita", "").strip() or None
+    
+    # Gestisci data vendita
+    data_vendita = form_data.get("data_vendita", "").strip()
+    if data_vendita:
+        try:
+            vendita.data_vendita = datetime.strptime(data_vendita, "%Y-%m-%d").date()
+        except:
+            pass
+    
+    db.commit()
+    
+    return RedirectResponse(url="/vendite", status_code=303)
+
+@app.delete("/vendite/{vendita_id}")
+async def elimina_vendita(vendita_id: int, db: Session = Depends(get_db)):
+    """Elimina una vendita"""
+    vendita = db.query(Vendita).filter(Vendita.id == vendita_id).first()
+    if not vendita:
+        raise HTTPException(status_code=404, detail="Vendita non trovata")
+    
+    db.delete(vendita)
+    db.commit()
+    
+    return {"message": "Vendita eliminata con successo"}
 
 @app.get("/performance", response_class=HTMLResponse)
 async def performance_dashboard(request: Request, db: Session = Depends(get_db)):

@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+
+{% block title %}Modifica Vendita - Gestionale Materiali{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-8 mx-auto">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="bi bi-pencil"></i> Modifica Vendita
+                </h5>
+                <p class="mb-0 text-muted">
+                    Prodotto: <strong>{{ vendita.prodotto.prodotto_descrizione }}</strong>
+                    {% if vendita.prodotto.seriale %}
+                        - Seriale: <code>{{ vendita.prodotto.seriale }}</code>
+                    {% endif %}
+                </p>
+            </div>
+            <div class="card-body">
+                <form method="POST" action="/vendite/{{ vendita.id }}/modifica">
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="data_vendita" class="form-label">Data Vendita *</label>
+                            <input type="date" class="form-control" id="data_vendita" 
+                                   name="data_vendita" value="{{ vendita.data_vendita.strftime('%Y-%m-%d') }}" required>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="canale_vendita" class="form-label">Canale Vendita *</label>
+                            <select class="form-control" id="canale_vendita" name="canale_vendita" required>
+                                <option value="BACKMARKET" {% if vendita.canale_vendita == "BACKMARKET" %}selected{% endif %}>BackMarket</option>
+                                <option value="REFURBED" {% if vendita.canale_vendita == "REFURBED" %}selected{% endif %}>Refurbed</option>
+                                <option value="EBAY" {% if vendita.canale_vendita == "EBAY" %}selected{% endif %}>eBay</option>
+                                <option value="AMAZON" {% if vendita.canale_vendita == "AMAZON" %}selected{% endif %}>Amazon</option>
+                                <option value="SEDE" {% if vendita.canale_vendita == "SEDE" %}selected{% endif %}>Sede</option>
+                                <option value="RIPARAZIONI" {% if vendita.canale_vendita == "RIPARAZIONI" %}selected{% endif %}>Riparazioni</option>
+                                <option value="ALTRO" {% if vendita.canale_vendita not in ["BACKMARKET", "REFURBED", "EBAY", "AMAZON", "SEDE", "RIPARAZIONI"] %}selected{% endif %}>Altro</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="prezzo_vendita" class="form-label">Prezzo Vendita (€) *</label>
+                            <input type="number" step="0.01" class="form-control" id="prezzo_vendita" 
+                                   name="prezzo_vendita" value="{{ vendita.prezzo_vendita }}" required>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="commissioni" class="form-label">Commissioni (€)</label>
+                            <input type="number" step="0.01" class="form-control" id="commissioni" 
+                                   name="commissioni" value="{{ vendita.commissioni or 0 }}">
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="note_vendita" class="form-label">Note Vendita</label>
+                        <textarea class="form-control" id="note_vendita" name="note_vendita" rows="3">{{ vendita.note_vendita or '' }}</textarea>
+                    </div>
+
+                    <!-- Info di sola lettura -->
+                    <div class="alert alert-info">
+                        <h6><i class="bi bi-info-circle"></i> Informazioni</h6>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <small><strong>Ricavo Netto:</strong> € {{ "%.2f"|format(vendita.ricavo_netto) }}</small>
+                            </div>
+                            <div class="col-md-6">
+                                <small><strong>Sincronizzato:</strong> 
+                                    {% if vendita.synced_from_invoicex %}
+                                        <span class="text-success">Da InvoiceX</span>
+                                    {% else %}
+                                        <span class="text-primary">Manuale</span>
+                                    {% endif %}
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="d-grid gap-2 d-md-flex justify-content-md-end">
+                        <a href="/vendite" class="btn btn-secondary me-md-2">
+                            <i class="bi bi-arrow-left"></i> Annulla
+                        </a>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-save"></i> Salva Modifiche
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

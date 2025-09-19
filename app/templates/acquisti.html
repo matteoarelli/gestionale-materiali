@@ -28,7 +28,7 @@
                         <th>Data Acquisto</th>
                         <th>Stato</th>
                         <th>Margine</th>
-                        <th width="200px">Azioni</th>
+                        <th width="160px">Azioni</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -117,12 +117,6 @@
                         </td>
                         <td>
                             <div class="btn-group" role="group">
-                                <!-- Visualizza dettaglio -->
-                                <button type="button" class="btn btn-sm btn-outline-info" 
-                                        title="Visualizza dettaglio" onclick="mostraDettaglio({{ acquisto.id }})">
-                                    <i class="bi bi-eye"></i>
-                                </button>
-                                
                                 <!-- Inserisci seriali (se ci sono prodotti senza seriale) -->
                                 {% set prodotti_senza_seriale = acquisto.prodotti|selectattr("seriale", "none")|list %}
                                 {% if prodotti_senza_seriale %}
@@ -209,23 +203,6 @@
 </div>
 {% endif %}
 
-<!-- Modal per dettaglio acquisto -->
-<div class="modal fade" id="dettaglioModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">Dettaglio Acquisto</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body" id="dettaglioContent">
-                <div class="text-center">
-                    <div class="spinner-border" role="status"></div>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
 <!-- Messaggio di successo per seriali inseriti -->
 <script>
 if (window.location.search.includes('seriali_inserted=1')) {
@@ -241,78 +218,6 @@ if (window.location.search.includes('seriali_inserted=1')) {
     const url = new URL(window.location);
     url.searchParams.delete('seriali_inserted');
     window.history.replaceState({}, document.title, url);
-}
-
-function mostraDettaglio(acquistoId) {
-    const modal = new bootstrap.Modal(document.getElementById('dettaglioModal'));
-    modal.show();
-    
-    // Reset contenuto
-    document.getElementById('dettaglioContent').innerHTML = `
-        <div class="text-center">
-            <div class="spinner-border" role="status"></div>
-            <p class="mt-2">Caricamento...</p>
-        </div>
-    `;
-    
-    fetch(`/api/acquisti/${acquistoId}`)
-        .then(response => {
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-            return response.json();
-        })
-        .then(data => {
-            console.log('Dati ricevuti completi:', JSON.stringify(data, null, 2)); // Debug completo
-            
-            // Verifica struttura dati
-            if (!data.prodotti) {
-                console.error('Prodotti non trovati nei dati:', data);
-                document.getElementById('dettaglioContent').innerHTML = 
-                    `<div class="alert alert-danger">
-                        <strong>Errore struttura dati</strong><br>
-                        I dati ricevuti non contengono l'array prodotti.<br>
-                        <details><summary>Dati ricevuti:</summary><pre>${JSON.stringify(data, null, 2)}</pre></details>
-                    </div>`;
-                return;
-            }
-            
-            document.getElementById('dettaglioContent').innerHTML = `
-                <div class="row">
-                    <div class="col-md-6">
-                        <h6>Informazioni Generali</h6>
-                        <p><strong>ID:</strong> ${data.id_acquisto_univoco}</p>
-                        <p><strong>Venditore:</strong> ${data.venditore}</p>
-                        <p><strong>Dove acquistato:</strong> ${data.dove_acquistato}</p>
-                        <p><strong>Costo:</strong> €${data.costo_acquisto} + €${data.costi_accessori} = €${data.costo_totale}</p>
-                        <p><strong>Data pagamento:</strong> ${data.data_pagamento || 'Non specificata'}</p>
-                        <p><strong>Data consegna:</strong> ${data.data_consegna || 'Non ancora arrivato'}</p>
-                        ${data.note ? `<p><strong>Note:</strong> ${data.note}</p>` : ''}
-                    </div>
-                    <div class="col-md-6">
-                        <h6>Prodotti (${data.prodotti.length})</h6>
-                        ${data.prodotti.map(p => `
-                            <div class="border rounded p-2 mb-2">
-                                <p><strong>Seriale:</strong> ${p.seriale ? `<code>${p.seriale}</code>` : '<span class="text-warning">Non assegnato</span>'}</p>
-                                <p><strong>Descrizione:</strong> ${p.prodotto_descrizione}</p>
-                                <p><strong>Stato:</strong> ${p.venduto ? '<span class="badge bg-success">Venduto</span>' : '<span class="badge bg-secondary">In Stock</span>'}</p>
-                                ${p.note_prodotto ? `<p><strong>Note:</strong> ${p.note_prodotto}</p>` : ''}
-                                ${p.venduto ? `<p><strong>Ricavo:</strong> €${p.ricavo_vendita}</p>` : ''}
-                            </div>
-                        `).join('')}
-                    </div>
-                </div>
-            `;
-        })
-        .catch(error => {
-            console.error('Errore:', error); // Debug
-            document.getElementById('dettaglioContent').innerHTML = 
-                `<div class="alert alert-danger">
-                    <strong>Errore nel caricamento dei dati</strong><br>
-                    ${error.message}
-                    <br><small>Controlla la console per maggiori dettagli</small>
-                </div>`;
-        });
 }
 
 function segnaArrivato(acquistoId) {

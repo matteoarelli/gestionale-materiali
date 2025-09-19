@@ -24,13 +24,14 @@
                         <th>Commissioni</th>
                         <th>Ricavo Netto</th>
                         <th>Margine</th>
+                        <th width="120px">Azioni</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for vendita in vendite %}
                     <tr>
                         <td>
-                            <code>{{ vendita.seriale }}</code>
+                            <code>{{ vendita.seriale or 'N/A' }}</code>
                             {% if vendita.synced_from_invoicex %}
                                 <br><small class="text-success"><i class="bi bi-check-circle"></i> InvoiceX</small>
                             {% endif %}
@@ -72,6 +73,21 @@
                             {% else %}
                                 <span class="text-muted">-</span>
                             {% endif %}
+                        </td>
+                        <td>
+                            <div class="btn-group" role="group">
+                                <!-- Modifica -->
+                                <a href="/vendite/{{ vendita.id }}/modifica" 
+                                   class="btn btn-sm btn-outline-primary" title="Modifica vendita">
+                                    <i class="bi bi-pencil"></i>
+                                </a>
+                                
+                                <!-- Elimina -->
+                                <button type="button" class="btn btn-sm btn-outline-danger" 
+                                        title="Elimina vendita" onclick="confermaEliminazioneVendita({{ vendita.id }}, '{{ vendita.seriale or 'N/A' }}')">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </div>
                         </td>
                     </tr>
                     {% endfor %}
@@ -126,4 +142,24 @@
     </div>
 </div>
 {% endif %}
+
+<script>
+function confermaEliminazioneVendita(venditaId, seriale) {
+    if (confirm(`Sei sicuro di voler eliminare la vendita del prodotto "${seriale}"? Questa azione non può essere annullata.`)) {
+        fetch(`/vendite/${venditaId}`, {
+            method: 'DELETE'
+        })
+        .then(response => {
+            if (response.ok) {
+                location.reload();
+            } else {
+                alert('Errore nell\'eliminazione della vendita');
+            }
+        })
+        .catch(error => {
+            alert('Errore nell\'eliminazione della vendita');
+        });
+    }
+}
+</script>
 {% endblock %}
