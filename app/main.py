@@ -93,19 +93,11 @@ async def da_gestire(request: Request, db: Session = Depends(get_db)):
         Acquisto.data_consegna.is_(None)
     ).options(joinedload(Acquisto.prodotti)).all()
     
-    # Calcola giorni di attesa per acquisti non arrivati
-    now = datetime.now()
-    for acquisto in acquisti_non_arrivati:
-        if acquisto.data_pagamento:
-            acquisto.giorni_attesa = (now.date() - acquisto.data_pagamento).days
-        else:
-            acquisto.giorni_attesa = (now.date() - acquisto.created_at.date()).days
-    
     return templates.TemplateResponse("da_gestire.html", {
         "request": request,
         "prodotti_senza_seriali": prodotti_senza_seriali,
         "acquisti_non_arrivati": acquisti_non_arrivati,
-        "now": now
+        "now": datetime.now()
     })
 
 @app.post("/da-gestire/segna-tutti-arrivati")
@@ -320,91 +312,6 @@ async def problemi(request: Request, db: Session = Depends(get_db)):
         "problemi_count": problemi_count
     })
 
-def _calcola_metriche_acquisto(acquisto, now):
-    """Calcola metriche aggiuntive per un acquisto"""
-    
-    # Prodotti senza seriali
-    acquisto.prodotti_senza_seriali = len([p for p in acquisto.prodotti if not p.seriale])
-    
-    # Giorni in stock/attesa
-    if acquisto.data_consegna:
-        acquisto.giorni_stock = (now.date() - acquisto.data_consegna).days
-        acquisto.giorni_attesa = None
-    else:
-        acquisto.giorni_stock = None
-        if acquisto.data_pagamento:
-            acquisto.giorni_attesa = (now.date() - acquisto.data_pagamento).days
-        else:
-            acquisto.giorni_attesa = (now.date() - acquisto.created_at.date()).days
-    
-    # Score di urgenza (0-100)
-    urgenza_score = 0
-    
-    # Penalità per non arrivato
-    if not acquisto.data_consegna and hasattr(acquisto, 'giorni_attesa'):
-        if acquisto.giorni_attesa > 21:
-            urgenza_score += 40
-        elif acquisto.giorni_attesa > 14:
-            urgenza_score += 30
-        elif acquisto.giorni_attesa > 7:
-            urgenza_score += 20
-    
-    # Penalità per seriali mancanti
-    if acquisto.prodotti_senza_seriali > 0:
-        urgenza_score += min(30, acquisto.prodotti_senza_seriali * 10)
-    
-    # Penalità per vendite lente
-    if acquisto.giorni_stock and acquisto.giorni_stock > 30:
-        prodotti_non_venduti = len([p for p in acquisto.prodotti if not p.vendite])
-        if prodotti_non_venduti > 0:
-            urgenza_score += min(30, (acquisto.giorni_stock - 30) // 15 * 10)
-    
-    acquisto.urgenza_score = min(100, urgenza_score)
-    
-    # Lista problemi testuali
-    problemi = []
-    if not acquisto.data_consegna:
-        problemi.append("Non arrivato")
-    if acquisto.prodotti_senza_seriali > 0:
-        problemi.append(f"{acquisto.prodotti_senza_seriali} senza seriali")
-    if acquisto.giorni_stock:
-        if acquisto.giorni_stock > 60 and not acquisto.completamente_venduto:
-            problemi.append("Vendita molto lenta")
-        elif acquisto.giorni_stock > 30 and not acquisto.completamente_venduto:
-            problemi.append("Vendita lenta")
-    
-    acquisto.problemi_list = problemi
-    acquisto.problematico = len(problemi) > 0
-    
-    # Performance score (se ha vendite)
-    if acquisto.prodotti_venduti > 0:
-        performance_score = 50  # Base
-        
-        # Marginalità
-        if acquisto.margine_totale > 0:
-            margine_perc = (acquisto.margine_totale / acquisto.costo_totale * 100)
-            if margine_perc >= 25:
-                performance_score += 30
-            elif margine_perc >= 15:
-                performance_score += 20
-            elif margine_perc >= 5:
-                performance_score += 10
-            else:
-                performance_score -= 10
-        
-        # Velocità di vendita
-        if acquisto.completamente_venduto and acquisto.giorni_stock:
-            if acquisto.giorni_stock <= 30:
-                performance_score += 20
-            elif acquisto.giorni_stock <= 60:
-                performance_score += 10
-            else:
-                performance_score -= 10
-        
-        acquisto.performance_score = max(0, min(100, performance_score))
-    else:
-        acquisto.performance_score = None
-
 @app.get("/acquisti", response_class=HTMLResponse)
 async def lista_acquisti(request: Request, db: Session = Depends(get_db)):
     """Pagina lista acquisti con filtri avanzati e ordinamento"""
@@ -503,11 +410,7 @@ async def lista_acquisti(request: Request, db: Session = Depends(get_db)):
     # Esegui query
     acquisti = query.all()
     
-    # Aggiungi proprietà calcolate per ogni acquisto
-    now = datetime.now()
-    for acquisto in acquisti:
-        # Calcola metriche aggiuntive per la UI
-        _calcola_metriche_acquisto(acquisto, now)
+    # Le proprietà sono già disponibili tramite @property nei modelli!
     
     return templates.TemplateResponse("acquisti.html", {
         "request": request,
