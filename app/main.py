@@ -933,6 +933,60 @@ async def get_prodotti_per_sync(db: Session = Depends(get_db)):
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
+@app.get("/admin/reset", response_class=HTMLResponse)
+async def reset_form(request: Request):
+    """Form per reset dati"""
+    return """
+    <html>
+    <head><title>Reset Dati</title></head>
+    <body style="font-family: Arial; max-width: 400px; margin: 100px auto; padding: 20px;">
+        <h2>⚠️ Reset Completo Database</h2>
+        <p>Questa azione cancellerà <strong>TUTTI</strong> gli acquisti, prodotti e vendite.</p>
+        <form method="POST" action="/admin/reset-data" onsubmit="return confirm('Sei SICURO di voler cancellare tutto?')">
+            <label>Password di conferma:</label>
+            <input type="password" name="password" placeholder="Inserisci password" required>
+            <br><br>
+            <button type="submit" style="background: red; color: white; padding: 10px 20px; border: none; cursor: pointer;">
+                🗑️ CANCELLA TUTTO
+            </button>
+            <a href="/" style="margin-left: 20px;">Annulla</a>
+        </form>
+        <p><small>Password: <code>reset2024</code></small></p>
+    </body>
+    </html>
+    """
+
+@app.post("/admin/reset-data")
+async def reset_all_data(request: Request, db: Session = Depends(get_db)):
+    """ADMIN: Cancella tutti i dati (acquisti, prodotti, vendite)"""
+    try:
+        # Verifica password semplice
+        form_data = await request.form()
+        password = form_data.get("password", "")
+        
+        if password != "reset2024":
+            return {"status": "error", "message": "Password errata"}
+        
+        # Cancella tutto in ordine (vendite -> prodotti -> acquisti)
+        vendite_count = db.query(Vendita).count()
+        prodotti_count = db.query(Prodotto).count()  
+        acquisti_count = db.query(Acquisto).count()
+        
+        db.query(Vendita).delete()
+        db.query(Prodotto).delete()
+        db.query(Acquisto).delete()
+        
+        db.commit()
+        
+        return {
+            "status": "success", 
+            "message": f"Cancellati: {acquisti_count} acquisti, {prodotti_count} prodotti, {vendite_count} vendite"
+        }
+        
+    except Exception as e:
+        db.rollback()
+        return {"status": "error", "message": str(e)}
+
 @app.get("/health")
 async def health_check():
     """Health check per Railway"""
