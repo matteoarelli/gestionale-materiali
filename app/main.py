@@ -463,6 +463,35 @@ async def elimina_acquisto(acquisto_id: int, db: Session = Depends(get_db)):
     
     return {"message": "Acquisto eliminato con successo"}
 
+@app.get("/debug-ip")
+async def debug_ip(request: Request):
+    """Mostra informazioni IP e rete"""
+    import socket
+    import subprocess
+    
+    try:
+        # IP locale
+        local_ip = socket.gethostbyname(socket.gethostname())
+        
+        # Prova a ottenere IP pubblico
+        try:
+            import urllib.request
+            public_ip = urllib.request.urlopen('https://api.ipify.org').read().decode('utf8')
+        except:
+            public_ip = "Non disponibile"
+            
+        # Headers della richiesta
+        headers = dict(request.headers)
+        
+        return {
+            "local_ip": local_ip,
+            "public_ip": public_ip,
+            "request_headers": headers,
+            "host": request.url.hostname
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
 @app.get("/test-invoicex")
 async def test_invoicex_connection():
     """Test connessione InvoiceX via web"""
