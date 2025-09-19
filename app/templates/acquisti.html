@@ -127,7 +127,7 @@
                         <th>Prodotti</th>
                         <th>Venditore</th>
                         <th>Costo</th>
-                        <th>Data / Stato</th>
+                        <th>Date</th>
                         <th>Vendita</th>
                         <th>Performance</th>
                         <th width="160px">Azioni</th>
@@ -211,23 +211,30 @@
                             {% endif %}
                             <div class="small text-muted">
                                 {% if acquisto.numero_prodotti > 0 %}
-    €{{ "%.2f"|format(acquisto.costo_totale / acquisto.numero_prodotti) }}/pezzo
-{% else %}
-    Nessun prodotto
-{% endif %}
+                                    €{{ "%.2f"|format(acquisto.costo_totale / acquisto.numero_prodotti) }}/pezzo
+                                {% else %}
+                                    Nessun prodotto
+                                {% endif %}
                             </div>
                         </td>
                         
                         <td class="align-middle">
+                            <!-- Data acquisto -->
                             <div class="mb-1">
-                                {{ acquisto.created_at.strftime('%d/%m/%Y') }}
+                                {% if acquisto.data_pagamento %}
+                                    {{ acquisto.data_pagamento.strftime('%d/%m/%Y') }}
+                                    <small class="text-muted">Acquisto</small>
+                                {% else %}
+                                    {{ acquisto.created_at.strftime('%d/%m/%Y') }}
+                                    <small class="text-muted">Creato</small>
+                                {% endif %}
                             </div>
                             
                             <!-- Stato consegna -->
                             {% if acquisto.data_consegna %}
                                 <div class="small">
                                     <span class="badge bg-success">
-                                        <i class="bi bi-truck"></i> {{ acquisto.data_consegna.strftime('%d/%m') }}
+                                        <i class="bi bi-truck"></i> {{ acquisto.data_consegna.strftime('%d/%m/%Y') }}
                                     </span>
                                     {% if acquisto.giorni_stock %}
                                         <span class="small text-muted">({{ acquisto.giorni_stock }}g in stock)</span>
@@ -289,12 +296,12 @@
                                 </div>
                                 
                                 <!-- Performance score -->
-                                {% if acquisto.performance_score %}
+                                {% if margine_perc %}
                                     <div class="mt-1">
                                         <div class="progress" style="height: 4px;">
-                                            <div class="progress-bar {% if acquisto.performance_score >= 80 %}bg-success{% elif acquisto.performance_score >= 60 %}bg-warning{% else %}bg-danger{% endif %}" 
-                                                 style="width: {{ acquisto.performance_score }}%;" 
-                                                 title="Performance: {{ acquisto.performance_score }}%">
+                                            <div class="progress-bar {% if margine_perc >= 25 %}bg-success{% elif margine_perc >= 15 %}bg-warning{% else %}bg-danger{% endif %}" 
+                                                 style="width: {{ [margine_perc, 100]|min }}%;" 
+                                                 title="Marginalità: {{ "%.1f"|format(margine_perc) }}%">
                                             </div>
                                         </div>
                                     </div>
@@ -432,8 +439,23 @@
 }
 </style>
 
-{% block scripts %}
+<!-- Messaggio di successo per seriali inseriti -->
 <script>
+if (window.location.search.includes('seriali_inserted=1')) {
+    const alert = document.createElement('div');
+    alert.className = 'alert alert-success alert-dismissible fade show mb-4';
+    alert.innerHTML = `
+        <i class="bi bi-check-circle"></i> Seriali inseriti con successo!
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    `;
+    document.querySelector('.container').insertBefore(alert, document.querySelector('.d-flex'));
+    
+    // Rimuovi il parametro dall'URL
+    const url = new URL(window.location);
+    url.searchParams.delete('seriali_inserted');
+    window.history.replaceState({}, document.title, url);
+}
+
 let vistaCompatta = false;
 
 function toggleViewCompatta() {
@@ -518,5 +540,4 @@ document.querySelectorAll('select[name="filtro_stato"], select[name="ordinamento
     });
 });
 </script>
-{% endblock %}
 {% endblock %}
