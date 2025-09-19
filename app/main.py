@@ -12,8 +12,8 @@ from app.database import get_db, engine, Base
 from app.models.models import Acquisto, Vendita, Prodotto
 from app.routers import acquisti
 
-# Ricrea le tabelle (elimina e ricrea tutto)
-Base.metadata.drop_all(bind=engine)
+# Rimuovi il drop_all dopo il primo deploy per non perdere dati
+# Base.metadata.drop_all(bind=engine)  # Commentato
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
@@ -467,11 +467,6 @@ async def elimina_acquisto(acquisto_id: int, db: Session = Depends(get_db)):
 async def health_check():
     """Health check per Railway"""
     return {"status": "healthy", "timestamp": datetime.now().isoformat()}
-
-# Aggiungi questo route subito dopo @app.get("/")
-@app.get("/test-simple")
-async def test_simple():
-    return {"message": "Route semplice funziona", "test": "ok"}
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
