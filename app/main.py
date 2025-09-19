@@ -385,27 +385,31 @@ async def lista_acquisti(request: Request, db: Session = Depends(get_db)):
         )
     
     # Applica ordinamento  
-    if ordinamento == "data_asc":
-        query = query.order_by(Acquisto.created_at.asc())
-    elif ordinamento == "costo_desc":
-        query = query.order_by(
-            (Acquisto.costo_acquisto + func.coalesce(Acquisto.costi_accessori, 0)).desc()
-        )
-    elif ordinamento == "urgenza":
-        # Ordinamento per urgenza: prima problematici
-        query = query.order_by(
-            # Prima: non arrivati
-            Acquisto.data_consegna.is_(None).desc(),
-            # Poi: per data  
-            Acquisto.created_at.desc()
-        )
-    elif ordinamento == "giorni_stock":
-        # Ordinamento per giorni in stock (arrivati da più tempo prima)
-        query = query.order_by(
-            Acquisto.data_consegna.asc().nulls_last()
-        )
-    else:  # data_desc (default)
-        query = query.order_by(Acquisto.created_at.desc())
+if ordinamento == "data_asc":
+    query = query.order_by(Acquisto.data_pagamento.asc().nulls_last(), Acquisto.created_at.asc())
+elif ordinamento == "consegna_desc":
+    query = query.order_by(Acquisto.data_consegna.desc().nulls_last())
+elif ordinamento == "consegna_asc":
+    query = query.order_by(Acquisto.data_consegna.asc().nulls_last())
+elif ordinamento == "costo_desc":
+    query = query.order_by(
+        (Acquisto.costo_acquisto + func.coalesce(Acquisto.costi_accessori, 0)).desc()
+    )
+elif ordinamento == "urgenza":
+    # Ordinamento per urgenza: prima problematici
+    query = query.order_by(
+        # Prima: non arrivati
+        Acquisto.data_consegna.is_(None).desc(),
+        # Poi: per data  
+        Acquisto.created_at.desc()
+    )
+elif ordinamento == "giorni_stock":
+    # Ordinamento per giorni in stock (arrivati da più tempo prima)
+    query = query.order_by(
+        Acquisto.data_consegna.asc().nulls_last()
+    )
+else:  # data_desc (default)
+    query = query.order_by(Acquisto.data_pagamento.desc().nulls_last(), Acquisto.created_at.desc())
     
     # Esegui query
     acquisti = query.all()

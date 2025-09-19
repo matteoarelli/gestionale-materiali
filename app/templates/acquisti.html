@@ -34,8 +34,10 @@
             <div class="col-md-3">
                 <label class="form-label">Ordinamento</label>
                 <select name="ordinamento" class="form-select">
-                    <option value="data_desc" {% if ordinamento == 'data_desc' %}selected{% endif %}>Data Creazione ↓</option>
-                    <option value="data_asc" {% if ordinamento == 'data_asc' %}selected{% endif %}>Data Creazione ↑</option>
+                    <option value="data_desc" {% if ordinamento == 'data_desc' %}selected{% endif %}>Data Pagamento ↓</option>
+                    <option value="data_asc" {% if ordinamento == 'data_asc' %}selected{% endif %}>Data Pagamento ↑</option>
+                    <option value="consegna_desc" {% if ordinamento == 'consegna_desc' %}selected{% endif %}>Data Consegna ↓</option>
+                    <option value="consegna_asc" {% if ordinamento == 'consegna_asc' %}selected{% endif %}>Data Consegna ↑</option>
                     <option value="urgenza" {% if ordinamento == 'urgenza' %}selected{% endif %}>Urgenza</option>
                     <option value="margine_desc" {% if ordinamento == 'margine_desc' %}selected{% endif %}>Margine ↓</option>
                     <option value="margine_asc" {% if ordinamento == 'margine_asc' %}selected{% endif %}>Margine ↑</option>
