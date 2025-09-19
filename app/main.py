@@ -4,16 +4,16 @@ from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import and_, or_, func
 from typing import List, Optional
 import uvicorn
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 
 from app.database import get_db, engine, Base
 from app.models.models import Acquisto, Vendita, Prodotto
 from app.routers import acquisti
 
-# Rimuovi il drop_all dopo il primo deploy per non perdere dati
-# Base.metadata.drop_all(bind=engine)  # Commentato
+# Crea tutte le tabelle
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
@@ -188,14 +188,10 @@ async def crea_acquisto(request: Request, db: Session = Depends(get_db)):
 @app.get("/acquisti/{acquisto_id}/seriali", response_class=HTMLResponse)
 async def inserisci_seriali_form(acquisto_id: int, request: Request, db: Session = Depends(get_db)):
     """Form per inserire seriali mancanti"""
-    print(f"DEBUG: Accesso a /acquisti/{acquisto_id}/seriali")  # Debug log
     
     acquisto = db.query(Acquisto).options(joinedload(Acquisto.prodotti)).filter(Acquisto.id == acquisto_id).first()
     if not acquisto:
-        print(f"DEBUG: Acquisto {acquisto_id} non trovato")  # Debug log
         raise HTTPException(status_code=404, detail="Acquisto non trovato")
-    
-    print(f"DEBUG: Acquisto trovato: {acquisto.id_acquisto_univoco}")  # Debug log
     
     return templates.TemplateResponse("inserisci_seriali.html", {
         "request": request,
@@ -310,7 +306,6 @@ async def salva_modifica_acquisto(acquisto_id: int, request: Request, db: Sessio
     
     # Gestisci prodotti
     prodotti_data = {}
-    prodotti_da_eliminare = []
     
     # Raccogli tutti i prodotti esistenti per vedere quali eliminare
     prodotti_esistenti = {p.id: p for p in acquisto.prodotti}
@@ -383,6 +378,175 @@ async def lista_vendite(request: Request, db: Session = Depends(get_db)):
         "vendite": vendite
     })
 
+@app.get("/performance", response_class=HTMLResponse)
+async def performance_dashboard(request: Request, db: Session = Depends(get_db)):
+    """Dashboard performance acquisti - analisi 30 giorni + 25% margine"""
+    
+    # Ottieni tutti gli acquisti con prodotti e vendite
+    acquisti = db.query(Acquisto).options(
+        joinedload(Acquisto.prodotti).joinedload(Prodotto.vendite)
+    ).filter(Acquisto.data_consegna.isnot(None)).all()  # Solo acquisti arrivati
+    
+    performance_data = []
+    
+    for acquisto in acquisti:
+        if not acquisto.prodotti:
+            continue
+            
+        # Calcola performance per questo acquisto
+        prodotti_totali = len(acquisto.prodotti)
+        prodotti_venduti = len([p for p in acquisto.prodotti if p.vendite])
+        
+        # Ricavi totali
+        ricavi_totali = sum(
+            sum(v.ricavo_netto for v in p.vendite) 
+            for p in acquisto.prodotti if p.vendite
+        )
+        
+        # Marginalità
+        costo_totale = acquisto.costo_totale
+        margine = ricavi_totali - costo_totale
+        margine_percentuale = (margine / costo_totale * 100) if costo_totale > 0 else 0
+        
+        # Tempo di vendita (giorni dall'arrivo alla vendita)
+        giorni_vendita = None
+        vendita_completa = prodotti_venduti == prodotti_totali
+        
+        if vendita_completa and acquisto.data_consegna:
+            # Trova la data dell'ultima vendita
+            date_vendite = []
+            for prodotto in acquisto.prodotti:
+                for vendita in prodotto.vendite:
+                    date_vendite.append(vendita.data_vendita)
+            
+            if date_vendite:
+                ultima_vendita = max(date_vendite)
+                giorni_vendita = (ultima_vendita - acquisto.data_consegna).days
+        
+        # Classificazione performance
+        performance_issues = []
+        
+        if not vendita_completa:
+            performance_issues.append(f"Vendita parziale ({prodotti_venduti}/{prodotti_totali})")
+        elif giorni_vendita and giorni_vendita > 30:
+            performance_issues.append(f"Vendita lenta ({giorni_vendita} giorni)")
+        
+        if margine_percentuale < 25:
+            performance_issues.append(f"Margine basso ({margine_percentuale:.1f}%)")
+        
+        performance_status = "OK" if not performance_issues else "PROBLEMI"
+        
+        performance_data.append({
+            "acquisto": acquisto,
+            "prodotti_totali": prodotti_totali,
+            "prodotti_venduti": prodotti_venduti,
+            "vendita_completa": vendita_completa,
+            "ricavi_totali": ricavi_totali,
+            "margine": margine,
+            "margine_percentuale": margine_percentuale,
+            "giorni_vendita": giorni_vendita,
+            "performance_status": performance_status,
+            "performance_issues": performance_issues
+        })
+    
+    # Ordina per problemi prima
+    performance_data.sort(key=lambda x: (x["performance_status"] != "PROBLEMI", x["margine_percentuale"]))
+    
+    # Statistiche generali
+    total_acquisti = len(performance_data)
+    acquisti_ok = len([p for p in performance_data if p["performance_status"] == "OK"])
+    acquisti_problemi = total_acquisti - acquisti_ok
+    
+    margine_medio = sum(p["margine_percentuale"] for p in performance_data) / total_acquisti if total_acquisti > 0 else 0
+    
+    stats = {
+        "total_acquisti": total_acquisti,
+        "acquisti_ok": acquisti_ok,
+        "acquisti_problemi": acquisti_problemi,
+        "percentuale_ok": (acquisti_ok / total_acquisti * 100) if total_acquisti > 0 else 0,
+        "margine_medio": margine_medio
+    }
+    
+    return templates.TemplateResponse("performance.html", {
+        "request": request,
+        "performance_data": performance_data,
+        "stats": stats
+    })
+
+@app.get("/statistiche", response_class=HTMLResponse)
+async def statistiche_periodiche(request: Request, db: Session = Depends(get_db)):
+    """Statistiche per periodo (settimana/mese)"""
+    
+    periodo = request.query_params.get("periodo", "mese")  # mese o settimana
+    
+    # Query base per acquisti con vendite
+    query = db.query(Acquisto).options(
+        joinedload(Acquisto.prodotti).joinedload(Prodotto.vendite)
+    ).filter(Acquisto.data_consegna.isnot(None))
+    
+    acquisti = query.all()
+    
+    # Raggruppa per periodo
+    periodi = {}
+    
+    for acquisto in acquisti:
+        if not acquisto.data_consegna:
+            continue
+            
+        # Determina chiave periodo
+        if periodo == "settimana":
+            # Settimana ISO
+            year, week, _ = acquisto.data_consegna.isocalendar()
+            periodo_key = f"{year}-W{week:02d}"
+            periodo_label = f"Settimana {week}/{year}"
+        else:
+            # Mese
+            periodo_key = acquisto.data_consegna.strftime("%Y-%m")
+            periodo_label = acquisto.data_consegna.strftime("%B %Y")
+        
+        if periodo_key not in periodi:
+            periodi[periodo_key] = {
+                "label": periodo_label,
+                "acquisti": [],
+                "investimento": 0,
+                "ricavi": 0,
+                "margine": 0,
+                "count": 0
+            }
+        
+        # Calcola metriche
+        ricavi_acquisto = sum(
+            sum(v.ricavo_netto for v in p.vendite) 
+            for p in acquisto.prodotti if p.vendite
+        )
+        
+        periodi[periodo_key]["acquisti"].append(acquisto)
+        periodi[periodo_key]["investimento"] += acquisto.costo_totale
+        periodi[periodo_key]["ricavi"] += ricavi_acquisto
+        periodi[periodo_key]["margine"] += ricavi_acquisto - acquisto.costo_totale
+        periodi[periodo_key]["count"] += 1
+    
+    # Converti in lista e calcola percentuali
+    statistiche_lista = []
+    for key, data in sorted(periodi.items(), reverse=True):
+        margine_perc = (data["margine"] / data["investimento"] * 100) if data["investimento"] > 0 else 0
+        
+        statistiche_lista.append({
+            "periodo": data["label"],
+            "count": data["count"],
+            "investimento": data["investimento"],
+            "ricavi": data["ricavi"],
+            "margine": data["margine"],
+            "margine_percentuale": margine_perc,
+            "acquisti": data["acquisti"]
+        })
+    
+    return templates.TemplateResponse("statistiche.html", {
+        "request": request,
+        "statistiche": statistiche_lista,
+        "periodo_selezionato": periodo
+    })
+
 @app.get("/api/acquisti/{acquisto_id}")
 async def get_acquisto_dettaglio(acquisto_id: int, db: Session = Depends(get_db)):
     """API per ottenere dettagli completi di un acquisto"""
@@ -392,8 +556,6 @@ async def get_acquisto_dettaglio(acquisto_id: int, db: Session = Depends(get_db)
         raise HTTPException(status_code=404, detail="Acquisto non trovato")
     
     try:
-        print(f"DEBUG API: Acquisto {acquisto.id} ha {len(acquisto.prodotti)} prodotti")  # Debug
-        
         # Forza il caricamento dei prodotti
         prodotti_list = []
         for p in acquisto.prodotti:
@@ -421,11 +583,9 @@ async def get_acquisto_dettaglio(acquisto_id: int, db: Session = Depends(get_db)
             "prodotti": prodotti_list
         }
         
-        print(f"DEBUG API: Restituisco {len(prodotti_list)} prodotti")  # Debug
         return result
         
     except Exception as e:
-        print(f"Errore API dettagli: {str(e)}")  # Debug log
         raise HTTPException(status_code=500, detail=f"Errore nel recupero dati: {str(e)}")
 
 @app.post("/acquisti/{acquisto_id}/segna-arrivato")
@@ -463,34 +623,139 @@ async def elimina_acquisto(acquisto_id: int, db: Session = Depends(get_db)):
     
     return {"message": "Acquisto eliminato con successo"}
 
-@app.get("/debug-ip")
-async def debug_ip(request: Request):
-    """Mostra informazioni IP e rete"""
-    import socket
-    import subprocess
-    
+# ================================================================
+# API ENDPOINTS PER SCRIPT LOCALE
+# ================================================================
+
+@app.post("/api/sync/acquisti")
+async def ricevi_acquisti_da_script(request: Request, db: Session = Depends(get_db)):
+    """API per ricevere acquisti dallo script locale Excel"""
     try:
-        # IP locale
-        local_ip = socket.gethostbyname(socket.gethostname())
+        data = await request.json()
         
-        # Prova a ottenere IP pubblico
-        try:
-            import urllib.request
-            public_ip = urllib.request.urlopen('https://api.ipify.org').read().decode('utf8')
-        except:
-            public_ip = "Non disponibile"
-            
-        # Headers della richiesta
-        headers = dict(request.headers)
+        # Verifica token di sicurezza
+        if data.get("token") != "sync_token_2024":
+            raise HTTPException(status_code=401, detail="Token non valido")
+        
+        acquisti_data = data.get("acquisti", [])
+        risultati = {
+            "acquisti_inseriti": 0,
+            "prodotti_inseriti": 0,
+            "prodotti_fotorip_venduti": 0,
+            "acquisti_aggiornati": 0,
+            "errori": []
+        }
+        
+        for acquisto_info in acquisti_data:
+            try:
+                # Verifica se acquisto esiste già
+                id_univoco = acquisto_info.get("id_acquisto_univoco")
+                acquisto_esistente = db.query(Acquisto).filter(
+                    Acquisto.id_acquisto_univoco == id_univoco
+                ).first()
+                
+                if acquisto_esistente:
+                    risultati["acquisti_aggiornati"] += 1
+                    continue
+                
+                # Parse delle date
+                data_pagamento = None
+                data_consegna = None
+                
+                if acquisto_info.get("data_pagamento"):
+                    try:
+                        data_pagamento = datetime.strptime(
+                            acquisto_info["data_pagamento"], "%Y-%m-%d"
+                        ).date()
+                    except:
+                        pass
+                
+                if acquisto_info.get("data_consegna"):
+                    try:
+                        data_consegna = datetime.strptime(
+                            acquisto_info["data_consegna"], "%Y-%m-%d"
+                        ).date()
+                    except:
+                        pass
+                
+                # Crea nuovo acquisto
+                nuovo_acquisto = Acquisto(
+                    id_acquisto_univoco=id_univoco,
+                    dove_acquistato=acquisto_info.get("dove_acquistato", ""),
+                    venditore=acquisto_info.get("venditore", ""),
+                    costo_acquisto=float(acquisto_info.get("costo_acquisto", 0)),
+                    costi_accessori=float(acquisto_info.get("costi_accessori", 0)),
+                    data_pagamento=data_pagamento,
+                    data_consegna=data_consegna,
+                    note=acquisto_info.get("note"),
+                    # Imposta created_at alla data di consegna se disponibile per acquisti storici
+                    created_at=data_consegna if data_consegna else datetime.now()
+                )
+                
+                db.add(nuovo_acquisto)
+                db.flush()  # Per ottenere l'ID
+                
+                # Crea i prodotti
+                prodotti_info = acquisto_info.get("prodotti", [])
+                for prodotto_info in prodotti_info:
+                    seriale = prodotto_info.get("seriale")
+                    descrizione = prodotto_info.get("descrizione", "")
+                    note = prodotto_info.get("note")
+                    is_fotorip = prodotto_info.get("is_fotorip", False)
+                    
+                    if not descrizione:
+                        continue
+                    
+                    # Verifica seriale univoco (solo se fornito e non è fotorip)
+                    if seriale and not is_fotorip:
+                        if db.query(Prodotto).filter(Prodotto.seriale == seriale).first():
+                            risultati["errori"].append(f"Seriale {seriale} già esistente")
+                            continue
+                    
+                    nuovo_prodotto = Prodotto(
+                        acquisto_id=nuovo_acquisto.id,
+                        seriale=seriale,
+                        prodotto_descrizione=descrizione,
+                        note_prodotto=note
+                    )
+                    
+                    db.add(nuovo_prodotto)
+                    risultati["prodotti_inseriti"] += 1
+                    
+                    # Se è fotorip, crea subito una vendita fittizia
+                    if is_fotorip:
+                        db.flush()  # Per ottenere l'ID del prodotto
+                        
+                        vendita_fotorip = Vendita(
+                            prodotto_id=nuovo_prodotto.id,
+                            data_vendita=data_consegna if data_consegna else date.today(),
+                            canale_vendita="RIPARAZIONI",
+                            prezzo_vendita=float(acquisto_info.get("costo_acquisto", 0)),
+                            commissioni=0.0,
+                            synced_from_invoicex=False,
+                            invoicex_id=f"FOTORIP_{nuovo_prodotto.id}",
+                            note_vendita="Prodotto utilizzato per riparazioni - importato da Excel"
+                        )
+                        
+                        db.add(vendita_fotorip)
+                        risultati["prodotti_fotorip_venduti"] += 1
+                
+                risultati["acquisti_inseriti"] += 1
+                
+            except Exception as e:
+                risultati["errori"].append(f"Errore acquisto {acquisto_info.get('id_acquisto_univoco', 'unknown')}: {str(e)}")
+        
+        db.commit()
         
         return {
-            "local_ip": local_ip,
-            "public_ip": public_ip,
-            "request_headers": headers,
-            "host": request.url.hostname
+            "status": "success",
+            "message": f"Processati {len(acquisti_data)} acquisti",
+            "risultati": risultati
         }
+        
     except Exception as e:
-        return {"error": str(e)}
+        db.rollback()
+        return {"status": "error", "message": str(e)}
 
 @app.post("/api/sync/vendite")
 async def ricevi_vendite_da_script(request: Request, db: Session = Depends(get_db)):
@@ -584,149 +849,6 @@ async def get_prodotti_per_sync(db: Session = Depends(get_db)):
         
     except Exception as e:
         return {"status": "error", "message": str(e)}
-
-@app.get("/explore-invoicex")
-async def explore_invoicex_detailed():
-    """Esplorazione dettagliata del database InvoiceX"""
-    try:
-        from sqlalchemy import create_engine, text
-        
-        config_invoicex = {
-            'user': 'ilblogdi_inv2021',
-            'password': 'pWTrEKV}=fF-',
-            'host': 'nl1-ts3.a2hosting.com',
-            'database': 'ilblogdi_invoicex2021',
-            'port': '3306'
-        }
-        
-        connection_string = f"mysql+pymysql://{config_invoicex['user']}:{config_invoicex['password']}@{config_invoicex['host']}:{config_invoicex['port']}/{config_invoicex['database']}"
-        engine = create_engine(connection_string)
-        
-        with engine.connect() as conn:
-            # Ottieni tutte le tabelle
-            tables_result = conn.execute(text("SHOW TABLES"))
-            all_tables = [row[0] for row in tables_result.fetchall()]
-            
-            # Cerca tabelle che probabilmente contengono fatture/vendite
-            target_keywords = ['fattur', 'invoice', 'documen', 'righe', 'testata', 'corpo', 'dettagl']
-            
-            detailed_tables = []
-            
-            for table in all_tables:
-                if any(keyword in table.lower() for keyword in target_keywords):
-                    try:
-                        # Struttura tabella
-                        structure = conn.execute(text(f"DESCRIBE {table}"))
-                        columns = [{"name": col[0], "type": col[1]} for col in structure.fetchall()]
-                        
-                        # Conta righe
-                        count_result = conn.execute(text(f"SELECT COUNT(*) FROM {table}"))
-                        count = count_result.fetchone()[0]
-                        
-                        # Se ha dati, prendi un campione
-                        sample_data = []
-                        if count > 0:
-                            sample_result = conn.execute(text(f"SELECT * FROM {table} LIMIT 2"))
-                            samples = sample_result.fetchall()
-                            
-                            for sample in samples:
-                                row_data = {}
-                                for i, col in enumerate(columns):
-                                    value = sample[i]
-                                    # Converti in stringa se necessario per JSON
-                                    if value is not None:
-                                        row_data[col["name"]] = str(value)
-                                    else:
-                                        row_data[col["name"]] = None
-                                sample_data.append(row_data)
-                        
-                        detailed_tables.append({
-                            "name": table,
-                            "columns": columns,
-                            "row_count": count,
-                            "sample_data": sample_data
-                        })
-                        
-                    except Exception as e:
-                        continue
-            
-            return {
-                "status": "success",
-                "total_tables": len(all_tables),
-                "detailed_tables": detailed_tables,
-                "table_names": [t["name"] for t in detailed_tables]
-            }
-            
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
-
-@app.get("/test-invoicex")
-async def test_invoicex_connection():
-    """Test connessione InvoiceX via web"""
-    try:
-        from sqlalchemy import create_engine, text
-        
-        # Configurazione DB Invoicex
-        config_invoicex = {
-            'user': 'ilblogdi_inv2021',
-            'password': 'pWTrEKV}=fF-',
-            'host': 'nl1-ts3.a2hosting.com',
-            'database': 'ilblogdi_invoicex2021',
-            'port': '3306'
-        }
-        
-        connection_string = f"mysql+pymysql://{config_invoicex['user']}:{config_invoicex['password']}@{config_invoicex['host']}:{config_invoicex['port']}/{config_invoicex['database']}"
-        engine = create_engine(connection_string)
-        
-        with engine.connect() as conn:
-            # Test connessione
-            result = conn.execute(text("SELECT 1 as test"))
-            test_result = result.fetchone()
-            
-            if not test_result:
-                return {"status": "error", "message": "Test query failed"}
-            
-            # Ottieni elenco tabelle
-            tables_result = conn.execute(text("SHOW TABLES"))
-            tables = [row[0] for row in tables_result.fetchall()]
-            
-            # Cerca tabelle potenzialmente interessanti
-            interesting_tables = []
-            keywords = ['invoice', 'fattur', 'sale', 'vend', 'item', 'product', 'order']
-            
-            for table in tables:
-                if any(keyword in table.lower() for keyword in keywords):
-                    try:
-                        # Ottieni struttura
-                        structure = conn.execute(text(f"DESCRIBE {table}"))
-                        columns = [{"name": col[0], "type": col[1]} for col in structure.fetchall()]
-                        
-                        # Conta righe
-                        count_result = conn.execute(text(f"SELECT COUNT(*) FROM {table}"))
-                        count = count_result.fetchone()[0]
-                        
-                        interesting_tables.append({
-                            "name": table,
-                            "columns": columns,
-                            "row_count": count
-                        })
-                    except:
-                        continue
-            
-            return {
-                "status": "success",
-                "message": "Connessione riuscita",
-                "total_tables": len(tables),
-                "all_tables": tables[:20],  # Prime 20
-                "interesting_tables": interesting_tables
-            }
-            
-    except Exception as e:
-        return {
-            "status": "error", 
-            "message": str(e),
-            "type": type(e).__name__
-        }
 
 @app.get("/health")
 async def health_check():
