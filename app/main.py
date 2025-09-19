@@ -463,6 +463,74 @@ async def elimina_acquisto(acquisto_id: int, db: Session = Depends(get_db)):
     
     return {"message": "Acquisto eliminato con successo"}
 
+@app.get("/test-invoicex")
+async def test_invoicex_connection():
+    """Test connessione InvoiceX via web"""
+    try:
+        from sqlalchemy import create_engine, text
+        
+        # Configurazione DB Invoicex
+        config_invoicex = {
+            'user': 'ilblogdi_inv2021',
+            'password': 'pWTrEKV}=fF-',
+            'host': 'nl1-ts3.a2hosting.com',
+            'database': 'ilblogdi_invoicex2021',
+            'port': '3306'
+        }
+        
+        connection_string = f"mysql+pymysql://{config_invoicex['user']}:{config_invoicex['password']}@{config_invoicex['host']}:{config_invoicex['port']}/{config_invoicex['database']}"
+        engine = create_engine(connection_string)
+        
+        with engine.connect() as conn:
+            # Test connessione
+            result = conn.execute(text("SELECT 1 as test"))
+            test_result = result.fetchone()
+            
+            if not test_result:
+                return {"status": "error", "message": "Test query failed"}
+            
+            # Ottieni elenco tabelle
+            tables_result = conn.execute(text("SHOW TABLES"))
+            tables = [row[0] for row in tables_result.fetchall()]
+            
+            # Cerca tabelle potenzialmente interessanti
+            interesting_tables = []
+            keywords = ['invoice', 'fattur', 'sale', 'vend', 'item', 'product', 'order']
+            
+            for table in tables:
+                if any(keyword in table.lower() for keyword in keywords):
+                    try:
+                        # Ottieni struttura
+                        structure = conn.execute(text(f"DESCRIBE {table}"))
+                        columns = [{"name": col[0], "type": col[1]} for col in structure.fetchall()]
+                        
+                        # Conta righe
+                        count_result = conn.execute(text(f"SELECT COUNT(*) FROM {table}"))
+                        count = count_result.fetchone()[0]
+                        
+                        interesting_tables.append({
+                            "name": table,
+                            "columns": columns,
+                            "row_count": count
+                        })
+                    except:
+                        continue
+            
+            return {
+                "status": "success",
+                "message": "Connessione riuscita",
+                "total_tables": len(tables),
+                "all_tables": tables[:20],  # Prime 20
+                "interesting_tables": interesting_tables
+            }
+            
+    except Exception as e:
+        return {
+            "status": "error", 
+            "message": str(e),
+            "type": type(e).__name__
+        }
+
 @app.get("/health")
 async def health_check():
     """Health check per Railway"""
