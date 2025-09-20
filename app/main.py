@@ -1565,6 +1565,151 @@ async def genera_seriali_mancanti(request: Request, db: Session = Depends(get_db
             "status": "error", 
             "message": str(e)
         }
+    # Aggiungi questo endpoint in main.py per debug vendite
+
+@app.get("/debug/sync-vendite")
+async def debug_sync_vendite(db: Session = Depends(get_db)):
+    """Debug per identificare problemi sincronizzazione vendite"""
+    
+    # 1. Prodotti con seriali che dovrebbero essere venduti
+    prodotti_non_venduti = db.query(Prodotto).filter(
+        Prodotto.venduto == False
+    ).all()
+    
+    # 2. Verifica se esistono vendite per questi seriali
+    debug_info = []
+    
+    for prodotto in prodotti_non_venduti:
+        # Cerca vendite con seriale esatto
+        vendita_esatta = db.query(Vendita).filter(
+            Vendita.seriale == prodotto.seriale
+        ).first()
+        
+        # Cerca vendite con seriale simile (case insensitive)
+        vendita_simile = db.query(Vendita).filter(
+            func.lower(Vendita.seriale) == func.lower(prodotto.seriale)
+        ).first()
+        
+        # Cerca vendite con seriale che contiene questo
+        vendite_contenenti = db.query(Vendita).filter(
+            Vendita.seriale.ilike(f"%{prodotto.seriale}%")
+        ).all()
+        
+        debug_info.append({
+            "seriale": prodotto.seriale,
+            "descrizione": prodotto.descrizione,
+            "acquisto_id": prodotto.acquisto_id,
+            "vendita_esatta": vendita_esatta.id if vendita_esatta else None,
+            "vendita_simile": vendita_simile.id if vendita_simile else None,
+            "vendite_contenenti": len(vendite_contenenti),
+            "giorni_in_stock": prodotto.giorni_in_stock
+        })
+    
+    return {
+        "prodotti_non_venduti_count": len(prodotti_non_venduti),
+        "debug_dettagli": debug_info[:20],  # Prime 20 per non sovraccaricare
+        "statistiche": {
+            "con_vendita_esatta": len([d for d in debug_info if d["vendita_esatta"]]),
+            "con_vendita_simile": len([d for d in debug_info if d["vendita_simile"]]),
+            "con_vendite_contenenti": len([d for d in debug_info if d["vendite_contenenti"] > 0])
+        }
+    }
+
+@app.get("/debug/seriali-specifici")
+async def debug_seriali_specifici(seriali: str, db: Session = Depends(get_db)):
+    """Debug per seriali specifici separati da virgola"""
+    
+    seriali_lista = [s.strip() for s in seriali.split(",")]
+    risultati = []
+    
+    for seriale in seriali_lista:
+        # Cerca prodotto
+        prodotto = db.query(Prodotto).filter(
+            Prodotto.seriale == seriale
+        ).first()
+        
+        # Cerca vendite
+        vendite = db.query(Vendita).filter(
+            Vendita.seriale == seriale
+        ).all()
+        
+        # Cerca simili
+        prodotti_simili = db.query(Prodotto).filter(
+            func.lower(Prodotto.seriale) == func.lower(seriale)
+        ).all()
+        
+        vendite_simili = db.query(Vendita).filter(
+            func.lower(Vendita.seriale) == func.lower(seriale)
+        ).all()
+        
+        risultati.append({
+            "seriale_cercato": seriale,
+            "prodotto_trovato": {
+                "id": prodotto.id if prodotto else None,
+                "seriale": prodotto.seriale if prodotto else None,
+                "venduto": prodotto.venduto if prodotto else None,
+                "descrizione": prodotto.descrizione if prodotto else None
+            },
+            "vendite_trovate": [
+                {
+                    "id": v.id,
+                    "data": v.data_vendita.isoformat() if v.data_vendita else None,
+                    "seriale": v.seriale,
+                    "prezzo": float(v.prezzo_vendita) if v.prezzo_vendita else None
+                } for v in vendite
+            ],
+            "prodotti_simili_count": len(prodotti_simili),
+            "vendite_simili_count": len(vendite_simili)
+        })
+    
+    return risultati
+
+@app.post("/debug/fix-vendite-mancanti")
+async def fix_vendite_mancanti(db: Session = Depends(get_db)):
+    """Corregge automaticamente prodotti con vendite non associate"""
+    
+    corretti = 0
+    errori = []
+    
+    # Trova prodotti non venduti che hanno vendite associate
+    prodotti_non_venduti = db.query(Prodotto).filter(
+        Prodotto.venduto == False
+    ).all()
+    
+    for prodotto in prodotti_non_venduti:
+        # Cerca vendita con seriale esatto o simile
+        vendita = db.query(Vendita).filter(
+            or_(
+                Vendita.seriale == prodotto.seriale,
+                func.lower(Vendita.seriale) == func.lower(prodotto.seriale)
+            )
+        ).first()
+        
+        if vendita:
+            try:
+                # Aggiorna prodotto come venduto
+                prodotto.venduto = True
+                
+                # Assicurati che la vendita abbia il seriale corretto
+                if vendita.seriale != prodotto.seriale:
+                    vendita.seriale = prodotto.seriale
+                
+                corretti += 1
+                
+            except Exception as e:
+                errori.append({
+                    "seriale": prodotto.seriale,
+                    "errore": str(e)
+                })
+    
+    if corretti > 0:
+        db.commit()
+    
+    return {
+        "corretti": corretti,
+        "errori": errori,
+        "messaggio": f"Corretti {corretti} prodotti con vendite mancanti"
+    }
     
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
