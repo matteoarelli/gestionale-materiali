@@ -1,0 +1,407 @@
+{% extends "base.html" %}
+
+{% block title %}Diagnostica Sincronizzazione - Gestionale Materiali{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h1><i class="bi bi-clipboard-data text-primary"></i> Diagnostica Sincronizzazione</h1>
+        <p class="text-muted">Analisi completa problemi di sincronizzazione e integrità dati</p>
+    </div>
+    <div>
+        <button class="btn btn-outline-primary" onclick="location.reload()">
+            <i class="bi bi-arrow-clockwise"></i> Aggiorna
+        </button>
+    </div>
+</div>
+
+<!-- Statistiche Generali -->
+<div class="row mb-4">
+    <div class="col-md-2">
+        <div class="card text-center">
+            <div class="card-body">
+                <h6 class="text-muted">Acquisti</h6>
+                <h4>{{ diagnostica.statistiche_generali.total_acquisti }}</h4>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2">
+        <div class="card text-center">
+            <div class="card-body">
+                <h6 class="text-muted">Prodotti</h6>
+                <h4>{{ diagnostica.statistiche_generali.total_prodotti }}</h4>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2">
+        <div class="card text-center">
+            <div class="card-body">
+                <h6 class="text-muted">Vendite</h6>
+                <h4 class="text-success">{{ diagnostica.statistiche_generali.total_vendite }}</h4>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2">
+        <div class="card text-center">
+            <div class="card-body">
+                <h6 class="text-muted">Venduti</h6>
+                <h4 class="text-success">{{ diagnostica.statistiche_generali.prodotti_venduti }}</h4>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2">
+        <div class="card text-center">
+            <div class="card-body">
+                <h6 class="text-muted">In Stock</h6>
+                <h4 class="text-warning">{{ diagnostica.statistiche_generali.prodotti_in_stock }}</h4>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2">
+        <div class="card text-center border-danger">
+            <div class="card-body">
+                <h6 class="text-muted">Problemi</h6>
+                <h4 class="text-danger">{{ diagnostica.problemi_count.senza_seriali + diagnostica.problemi_count.con_seriali_no_vendite }}</h4>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Panoramica Problemi -->
+<div class="row mb-4">
+    <div class="col-md-4">
+        <div class="card border-warning">
+            <div class="card-header bg-warning text-dark">
+                <h6 class="mb-0"><i class="bi bi-exclamation-triangle"></i> Prodotti Senza Seriali</h6>
+            </div>
+            <div class="card-body">
+                <h4 class="text-warning">{{ diagnostica.problemi_count.senza_seriali }}</h4>
+                <p class="small text-muted">Prodotti che non possono essere venduti senza seriale</p>
+                <button class="btn btn-sm btn-warning" onclick="toggleSection('senza-seriali')">
+                    <i class="bi bi-eye"></i> Vedi Dettagli
+                </button>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card border-danger">
+            <div class="card-header bg-danger text-white">
+                <h6 class="mb-0"><i class="bi bi-x-circle"></i> Con Seriali ma Senza Vendite</h6>
+            </div>
+            <div class="card-body">
+                <h4 class="text-danger">{{ diagnostica.problemi_count.con_seriali_no_vendite }}</h4>
+                <p class="small text-muted">Prodotti che dovrebbero essere sincronizzati da InvoiceX</p>
+                <button class="btn btn-sm btn-danger" onclick="toggleSection('no-vendite')">
+                    <i class="bi bi-eye"></i> Vedi Dettagli
+                </button>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card border-info">
+            <div class="card-header bg-info text-white">
+                <h6 class="mb-0"><i class="bi bi-tools"></i> Altri Problemi</h6>
+            </div>
+            <div class="card-body">
+                <div class="small">
+                    <div>Seriali duplicati: <strong>{{ diagnostica.problemi_count.seriali_duplicati }}</strong></div>
+                    <div>Seriali problematici: <strong>{{ diagnostica.problemi_count.seriali_strani }}</strong></div>
+                    <div>Acquisti vuoti: <strong>{{ diagnostica.problemi_count.acquisti_vuoti }}</strong></div>
+                    <div>Vendite orfane: <strong>{{ diagnostica.problemi_count.vendite_orfane }}</strong></div>
+                </div>
+                <button class="btn btn-sm btn-info mt-2" onclick="toggleSection('altri-problemi')">
+                    <i class="bi bi-eye"></i> Vedi Dettagli
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Azioni Rapide -->
+<div class="card mb-4 border-primary">
+    <div class="card-header bg-primary text-white">
+        <h6 class="mb-0"><i class="bi bi-lightning-fill"></i> Azioni di Correzione</h6>
+    </div>
+    <div class="card-body">
+        <div class="row">
+            <div class="col-md-3">
+                <h6>Pulizia Seriali</h6>
+                <button onclick="pulisciSeriali()" class="btn btn-outline-warning btn-sm">
+                    <i class="bi bi-brush"></i> Pulisci Seriali Problematici
+                </button>
+                <small class="d-block text-muted mt-1">Normalizza spazi, rimuove "???" ecc.</small>
+            </div>
+            <div class="col-md-3">
+                <h6>Genera Seriali</h6>
+                <form class="d-inline" onsubmit="generaSeriali(event)">
+                    <div class="input-group input-group-sm">
+                        <input type="text" name="prefisso" class="form-control" placeholder="AUTO" value="AUTO">
+                        <button type="submit" class="btn btn-outline-primary">
+                            <i class="bi bi-plus"></i> Genera
+                        </button>
+                    </div>
+                </form>
+                <small class="d-block text-muted mt-1">Crea seriali AUTO0001, AUTO0002...</small>
+            </div>
+            <div class="col-md-3">
+                <h6>Sincronizzazione</h6>
+                <a href="/da-gestire/inserisci-seriali-multipli" class="btn btn-outline-success btn-sm">
+                    <i class="bi bi-upc-scan"></i> Inserisci Seriali
+                </a>
+                <small class="d-block text-muted mt-1">Inserimento manuale in blocco</small>
+            </div>
+            <div class="col-md-3">
+                <h6>Reset Completo</h6>
+                <a href="/admin/reset" class="btn btn-outline-danger btn-sm">
+                    <i class="bi bi-exclamation-triangle"></i> Reset Database
+                </a>
+                <small class="d-block text-muted mt-1">Solo per test/emergenze</small>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Sezione: Prodotti Senza Seriali -->
+<div id="senza-seriali" class="card mb-4" style="display: none;">
+    <div class="card-header bg-warning text-dark">
+        <h5 class="mb-0">Prodotti Senza Seriali ({{ diagnostica.problemi_count.senza_seriali }})</h5>
+    </div>
+    <div class="card-body">
+        {% if diagnostica.prodotti_senza_seriali %}
+        <div class="table-responsive">
+            <table class="table table-sm table-hover">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Acquisto</th>
+                        <th>Descrizione</th>
+                        <th>Venditore</th>
+                        <th>Data Acquisto</th>
+                        <th>Stato</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for prodotto in diagnostica.prodotti_senza_seriali[:50] %}
+                    <tr>
+                        <td>{{ prodotto.id }}</td>
+                        <td>
+                            <a href="/acquisti/{{ prodotto.acquisto.id }}/seriali">
+                                {{ prodotto.acquisto.id_acquisto_univoco }}
+                            </a>
+                        </td>
+                        <td>{{ prodotto.prodotto_descrizione[:50] }}...</td>
+                        <td>{{ prodotto.acquisto.venditore }}</td>
+                        <td>{{ prodotto.acquisto.created_at.strftime('%d/%m/%Y') if prodotto.acquisto.created_at else '-' }}</td>
+                        <td>
+                            {% if prodotto.venduto %}
+                                <span class="badge bg-success">Venduto</span>
+                            {% else %}
+                                <span class="badge bg-secondary">In Stock</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                    {% if diagnostica.prodotti_senza_seriali|length > 50 %}
+                    <tr>
+                        <td colspan="6" class="text-center text-muted">
+                            ... e altri {{ diagnostica.prodotti_senza_seriali|length - 50 }} prodotti
+                        </td>
+                    </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="text-success">Nessun prodotto senza seriali trovato!</p>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Sezione: Prodotti Con Seriali ma Senza Vendite -->
+<div id="no-vendite" class="card mb-4" style="display: none;">
+    <div class="card-header bg-danger text-white">
+        <h5 class="mb-0">Prodotti Con Seriali ma Senza Vendite ({{ diagnostica.problemi_count.con_seriali_no_vendite }})</h5>
+        <small>Questi prodotti dovrebbero essere sincronizzati automaticamente da InvoiceX</small>
+    </div>
+    <div class="card-body">
+        {% if diagnostica.prodotti_con_seriali_no_vendite %}
+        <div class="table-responsive">
+            <table class="table table-sm table-hover">
+                <thead>
+                    <tr>
+                        <th>Seriale</th>
+                        <th>Descrizione</th>
+                        <th>Acquisto</th>
+                        <th>Venditore</th>
+                        <th>Giorni in Stock</th>
+                        <th>Problemi Possibili</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for prodotto in diagnostica.prodotti_con_seriali_no_vendite[:100] %}
+                    <tr>
+                        <td>
+                            <code class="text-primary">{{ prodotto.seriale }}</code>
+                            {% if '???' in prodotto.seriale or '-' in prodotto.seriale[-1:] %}
+                                <i class="bi bi-exclamation-triangle text-warning" title="Seriale problematico"></i>
+                            {% endif %}
+                        </td>
+                        <td>{{ prodotto.prodotto_descrizione[:40] }}...</td>
+                        <td>{{ prodotto.acquisto.id_acquisto_univoco }}</td>
+                        <td>{{ prodotto.acquisto.venditore }}</td>
+                        <td>
+                            {% if prodotto.giorni_in_stock %}
+                                <span class="{% if prodotto.giorni_in_stock > 60 %}text-danger{% elif prodotto.giorni_in_stock > 30 %}text-warning{% else %}text-muted{% endif %}">
+                                    {{ prodotto.giorni_in_stock }} giorni
+                                </span>
+                            {% else %}
+                                <span class="text-muted">Non arrivato</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <div class="small">
+                                {% if '???' in prodotto.seriale %}
+                                    <span class="badge bg-warning">Seriale invalido</span>
+                                {% endif %}
+                                {% if prodotto.seriale[-1:] == '-' %}
+                                    <span class="badge bg-info">Formato strano</span>
+                                {% endif %}
+                                {% if ' ' in prodotto.seriale %}
+                                    <span class="badge bg-secondary">Con spazi</span>
+                                {% endif %}
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                    {% if diagnostica.prodotti_con_seriali_no_vendite|length > 100 %}
+                    <tr>
+                        <td colspan="6" class="text-center text-muted">
+                            ... e altri {{ diagnostica.prodotti_con_seriali_no_vendite|length - 100 }} prodotti
+                        </td>
+                    </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="text-success">Tutti i prodotti con seriali hanno vendite associate!</p>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Sezione: Altri Problemi -->
+<div id="altri-problemi" class="card mb-4" style="display: none;">
+    <div class="card-header bg-info text-white">
+        <h5 class="mb-0">Altri Problemi di Integrità</h5>
+    </div>
+    <div class="card-body">
+        <!-- Seriali Duplicati -->
+        {% if diagnostica.seriali_duplicati %}
+        <h6 class="text-danger">Seriali Duplicati ({{ diagnostica.problemi_count.seriali_duplicati }})</h6>
+        <div class="table-responsive mb-4">
+            <table class="table table-sm">
+                <thead>
+                    <tr>
+                        <th>Seriale</th>
+                        <th>Occorrenze</th>
+                        <th>Azione</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for seriale, count in diagnostica.seriali_duplicati %}
+                    <tr>
+                        <td><code>{{ seriale }}</code></td>
+                        <td><span class="badge bg-danger">{{ count }}</span></td>
+                        <td>
+                            <button class="btn btn-sm btn-outline-danger" onclick="risolviDuplicato('{{ seriale }}')">
+                                Risolvi
+                            </button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+
+        <!-- Pattern Seriali -->
+        {% if diagnostica.pattern_seriali %}
+        <h6 class="text-info">Pattern Seriali Più Comuni</h6>
+        <div class="row">
+            {% for prefisso, count in diagnostica.pattern_seriali %}
+            <div class="col-md-3 mb-2">
+                <div class="card border-light">
+                    <div class="card-body p-2 text-center">
+                        <code>{{ prefisso }}***</code>
+                        <br>
+                        <small class="text-muted">{{ count }} prodotti</small>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+{% block scripts %}
+<script>
+function toggleSection(sectionId) {
+    const section = document.getElementById(sectionId);
+    section.style.display = section.style.display === 'none' ? 'block' : 'none';
+}
+
+function pulisciSeriali() {
+    if (!confirm('Pulire automaticamente i seriali problematici? Questa azione rimuoverà seriali "???" e normalizzerà spazi.')) return;
+    
+    fetch('/diagnostica/pulisci-seriali', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'}
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            alert(`Successo! Seriali puliti: ${data.risultati.seriali_puliti}, Normalizzati: ${data.risultati.seriali_normalizzati}`);
+            location.reload();
+        } else {
+            alert(`Errore: ${data.message}`);
+        }
+    })
+    .catch(error => {
+        alert('Errore nella richiesta');
+    });
+}
+
+function generaSeriali(event) {
+    event.preventDefault();
+    const prefisso = event.target.prefisso.value || 'AUTO';
+    
+    if (!confirm(`Generare seriali automatici con prefisso "${prefisso}" per tutti i prodotti senza seriali?`)) return;
+    
+    const formData = new FormData();
+    formData.append('prefisso', prefisso);
+    
+    fetch('/diagnostica/genera-seriali-mancanti', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            alert(`Successo! Generati ${data.seriali_generati} seriali`);
+            location.reload();
+        } else {
+            alert(`Errore: ${data.message}`);
+        }
+    })
+    .catch(error => {
+        alert('Errore nella richiesta');
+    });
+}
+
+function risolviDuplicato(seriale) {
+    alert(`Funzionalità in sviluppo per risolvere duplicato: ${seriale}`);
+}
+</script>
+{% endblock %}
+{% endblock %}

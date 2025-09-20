@@ -82,11 +82,18 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
 async def da_gestire(request: Request, db: Session = Depends(get_db)):
     """Pagina Da Gestire - elementi che richiedono attenzione"""
     
-    # Prodotti senza seriali (solo quelli non venduti)
+    # Prodotti senza seriali (TUTTI, non solo quelli non venduti)
     prodotti_senza_seriali = db.query(Prodotto).filter(
-        Prodotto.seriale.is_(None),
-        ~Prodotto.vendite.any()  # Non venduti
+        or_(
+            Prodotto.seriale.is_(None),
+            Prodotto.seriale == "",
+            Prodotto.seriale == "???",
+            Prodotto.seriale == "N/A"
+        )
     ).options(joinedload(Prodotto.acquisto)).all()
+    
+    # Filtra solo quelli non venduti per la visualizzazione
+    prodotti_senza_seriali_non_venduti = [p for p in prodotti_senza_seriali if not p.venduto]
     
     # Acquisti non ancora arrivati
     acquisti_non_arrivati = db.query(Acquisto).filter(
@@ -95,7 +102,7 @@ async def da_gestire(request: Request, db: Session = Depends(get_db)):
     
     return templates.TemplateResponse("da_gestire.html", {
         "request": request,
-        "prodotti_senza_seriali": prodotti_senza_seriali,
+        "prodotti_senza_seriali": prodotti_senza_seriali_non_venduti,
         "acquisti_non_arrivati": acquisti_non_arrivati,
         "now": datetime.now()
     })
@@ -1328,6 +1335,237 @@ async def health_check():
     """Health check per Railway"""
     return {"status": "healthy", "timestamp": datetime.now().isoformat()}
 
+# Aggiungi questa route al main.py
+
+@app.get("/diagnostica", response_class=HTMLResponse)
+async def diagnostica_sincronizzazione(request: Request, db: Session = Depends(get_db)):
+    """Diagnostica completa problemi di sincronizzazione"""
+    
+    # 1. Prodotti senza seriali
+    prodotti_senza_seriali = db.query(Prodotto).filter(
+        or_(
+            Prodotto.seriale.is_(None),
+            Prodotto.seriale == "",
+            Prodotto.seriale == "???",
+            Prodotto.seriale == "N/A"
+        )
+    ).options(joinedload(Prodotto.acquisto)).all()
+    
+    # 2. Prodotti con seriali ma senza vendite
+    prodotti_con_seriali_no_vendite = db.query(Prodotto).filter(
+        Prodotto.seriale.isnot(None),
+        Prodotto.seriale != "",
+        Prodotto.seriale != "???",
+        Prodotto.seriale != "N/A",
+        ~Prodotto.vendite.any()
+    ).options(joinedload(Prodotto.acquisto)).all()
+    
+    # 3. Seriali duplicati
+    seriali_duplicati = db.query(Prodotto.seriale, func.count(Prodotto.id).label('count')).filter(
+        Prodotto.seriale.isnot(None),
+        Prodotto.seriale != "",
+        Prodotto.seriale != "???",
+        Prodotto.seriale != "N/A"
+    ).group_by(Prodotto.seriale).having(func.count(Prodotto.id) > 1).all()
+    
+    # 4. Prodotti venduti senza seriali
+    prodotti_venduti_senza_seriali = db.query(Prodotto).filter(
+        or_(
+            Prodotto.seriale.is_(None),
+            Prodotto.seriale == "",
+            Prodotto.seriale == "???",
+            Prodotto.seriale == "N/A"
+        ),
+        Prodotto.vendite.any()
+    ).options(joinedload(Prodotto.vendite)).all()
+    
+    # 5. Statistiche generali
+    total_prodotti = db.query(Prodotto).count()
+    total_vendite = db.query(Vendita).count()
+    total_acquisti = db.query(Acquisto).count()
+    
+    prodotti_venduti = db.query(Prodotto).filter(Prodotto.vendite.any()).count()
+    prodotti_in_stock = total_prodotti - prodotti_venduti
+    
+    # 6. Analisi seriali problematici
+    seriali_problematici = []
+    
+    # Seriali con caratteri strani
+    prodotti_seriali_strani = db.query(Prodotto).filter(
+        Prodotto.seriale.isnot(None),
+        or_(
+            Prodotto.seriale.like("%???%"),
+            Prodotto.seriale.like("%-"),
+            Prodotto.seriale.like("% %"),  # Con spazi
+            func.char_length(Prodotto.seriale) < 3,
+            func.char_length(Prodotto.seriale) > 50
+        )
+    ).all()
+    
+    # 7. Acquisti senza prodotti
+    acquisti_senza_prodotti = db.query(Acquisto).filter(
+        ~Acquisto.prodotti.any()
+    ).all()
+    
+    # 8. Vendite orfane (senza prodotto)
+    vendite_orfane = db.query(Vendita).filter(
+        Vendita.prodotto_id.is_(None)
+    ).all()
+    
+    # 9. Pattern seriali comuni
+    pattern_seriali = db.query(
+        func.substring(Prodotto.seriale, 1, 3).label('prefisso'),
+        func.count(Prodotto.id).label('count')
+    ).filter(
+        Prodotto.seriale.isnot(None),
+        func.char_length(Prodotto.seriale) >= 3
+    ).group_by(func.substring(Prodotto.seriale, 1, 3)).order_by(func.count(Prodotto.id).desc()).limit(20).all()
+    
+    diagnostica_data = {
+        "statistiche_generali": {
+            "total_prodotti": total_prodotti,
+            "total_vendite": total_vendite,
+            "total_acquisti": total_acquisti,
+            "prodotti_venduti": prodotti_venduti,
+            "prodotti_in_stock": prodotti_in_stock
+        },
+        "prodotti_senza_seriali": prodotti_senza_seriali,
+        "prodotti_con_seriali_no_vendite": prodotti_con_seriali_no_vendite,
+        "seriali_duplicati": seriali_duplicati,
+        "prodotti_venduti_senza_seriali": prodotti_venduti_senza_seriali,
+        "seriali_problematici": prodotti_seriali_strani,
+        "acquisti_senza_prodotti": acquisti_senza_prodotti,
+        "vendite_orfane": vendite_orfane,
+        "pattern_seriali": pattern_seriali,
+        "problemi_count": {
+            "senza_seriali": len(prodotti_senza_seriali),
+            "con_seriali_no_vendite": len(prodotti_con_seriali_no_vendite),
+            "seriali_duplicati": len(seriali_duplicati),
+            "seriali_strani": len(prodotti_seriali_strani),
+            "acquisti_vuoti": len(acquisti_senza_prodotti),
+            "vendite_orfane": len(vendite_orfane)
+        }
+    }
+    
+    return templates.TemplateResponse("diagnostica.html", {
+        "request": request,
+        "diagnostica": diagnostica_data
+    })
+
+@app.post("/diagnostica/pulisci-seriali")
+async def pulisci_seriali_problematici(request: Request, db: Session = Depends(get_db)):
+    """Pulisce automaticamente i seriali problematici"""
+    
+    risultati = {
+        "seriali_puliti": 0,
+        "seriali_normalizzati": 0,
+        "duplicati_rimossi": 0,
+        "errori": []
+    }
+    
+    try:
+        # 1. Normalizza seriali con spazi/caratteri strani
+        prodotti_da_normalizzare = db.query(Prodotto).filter(
+            Prodotto.seriale.isnot(None),
+            or_(
+                Prodotto.seriale.like("% %"),  # Con spazi
+                Prodotto.seriale.like("%-%"),  # Che finiscono con -
+                Prodotto.seriale.like("%-")
+            )
+        ).all()
+        
+        for prodotto in prodotti_da_normalizzare:
+            seriale_originale = prodotto.seriale
+            # Rimuovi spazi e trattini finali
+            seriale_pulito = prodotto.seriale.strip().rstrip('-').strip()
+            
+            if seriale_pulito and seriale_pulito != seriale_originale:
+                # Verifica che il seriale pulito non esista già
+                existing = db.query(Prodotto).filter(
+                    Prodotto.seriale == seriale_pulito,
+                    Prodotto.id != prodotto.id
+                ).first()
+                
+                if not existing:
+                    prodotto.seriale = seriale_pulito
+                    risultati["seriali_normalizzati"] += 1
+        
+        # 2. Gestisci seriali "???" e simili
+        prodotti_seriali_invalidi = db.query(Prodotto).filter(
+            or_(
+                Prodotto.seriale == "???",
+                Prodotto.seriale == "N/A",
+                Prodotto.seriale == "",
+                func.char_length(Prodotto.seriale) < 3
+            )
+        ).all()
+        
+        for prodotto in prodotti_seriali_invalidi:
+            prodotto.seriale = None  # Rimuovi seriale invalido
+            risultati["seriali_puliti"] += 1
+        
+        db.commit()
+        
+        return {
+            "status": "success",
+            "risultati": risultati
+        }
+        
+    except Exception as e:
+        db.rollback()
+        return {
+            "status": "error",
+            "message": str(e)
+        }
+
+@app.post("/diagnostica/genera-seriali-mancanti")  
+async def genera_seriali_mancanti(request: Request, db: Session = Depends(get_db)):
+    """Genera seriali fittizi per prodotti senza seriali"""
+    
+    form_data = await request.form()
+    prefisso = form_data.get("prefisso", "AUTO")
+    
+    try:
+        prodotti_senza_seriali = db.query(Prodotto).filter(
+            or_(
+                Prodotto.seriale.is_(None),
+                Prodotto.seriale == "",
+                Prodotto.seriale == "???",
+                Prodotto.seriale == "N/A"
+            ),
+            ~Prodotto.vendite.any()  # Solo prodotti non venduti
+        ).all()
+        
+        seriali_generati = 0
+        
+        for i, prodotto in enumerate(prodotti_senza_seriali, 1):
+            # Genera seriale unico
+            while True:
+                seriale_generato = f"{prefisso}{i:04d}"
+                
+                # Verifica unicità
+                existing = db.query(Prodotto).filter(Prodotto.seriale == seriale_generato).first()
+                if not existing:
+                    prodotto.seriale = seriale_generato
+                    seriali_generati += 1
+                    break
+                else:
+                    i += 1000  # Salta avanti se esiste
+        
+        db.commit()
+        
+        return {
+            "status": "success",
+            "seriali_generati": seriali_generati
+        }
+        
+    except Exception as e:
+        db.rollback()
+        return {
+            "status": "error", 
+            "message": str(e)
+        }
+    
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run("app.main:app", host="0.0.0.0", port=port, reload=True)
