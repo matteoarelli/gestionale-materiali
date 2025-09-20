@@ -1710,7 +1710,48 @@ async def fix_vendite_mancanti(db: Session = Depends(get_db)):
         "errori": errori,
         "messaggio": f"Corretti {corretti} prodotti con vendite mancanti"
     }
+    # Aggiungi questo endpoint al tuo main.py
+
+@app.get("/api/prodotti-con-seriali-senza-vendite")
+async def get_prodotti_con_seriali_senza_vendite(db: Session = Depends(get_db)):
+    """Restituisce prodotti che hanno seriali ma nessuna vendita associata"""
     
+    # Query per trovare prodotti con seriali ma senza vendite
+    prodotti_senza_vendite = db.query(Prodotto).filter(
+        and_(
+            Prodotto.seriale.isnot(None),
+            Prodotto.seriale != "",
+            Prodotto.seriale != "N/A",
+            ~Prodotto.seriale.like("%fotorip%")  # Escludi prodotti fotorip
+        )
+    ).all()
+    
+    # Filtra quelli che non hanno vendite associate
+    prodotti_problema = []
+    
+    for prodotto in prodotti_senza_vendite:
+        # Cerca vendite con questo seriale
+        vendite = db.query(Vendita).filter(
+            Vendita.seriale == prodotto.seriale
+        ).all()
+        
+        # Se non ha vendite, è un problema
+        if not vendite:
+            prodotti_problema.append({
+                "id": prodotto.id,
+                "seriale": prodotto.seriale,
+                "descrizione": prodotto.descrizione,
+                "venduto": prodotto.venduto,
+                "acquisto_id": prodotto.acquisto_id,
+                "giorni_in_stock": prodotto.giorni_in_stock,
+                "note": prodotto.note
+            })
+    
+    return {
+        "count": len(prodotti_problema),
+        "prodotti": prodotti_problema
+    }
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run("app.main:app", host="0.0.0.0", port=port, reload=True)
