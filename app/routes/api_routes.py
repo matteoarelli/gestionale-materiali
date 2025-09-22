@@ -295,17 +295,17 @@ async def debug_sync_vendite(db: Session = Depends(get_db)):
         if not prodotto.seriale or prodotto.seriale in ["", "???", "N/A"]:
             continue
             
-        # Cerca vendite per questo seriale
-        vendita_esatta = db.query(Vendita).filter(
-            Vendita.seriale == prodotto.seriale
+        # Cerca vendite per questo seriale tramite relazione prodotto
+        vendita_esatta = db.query(Vendita).join(Prodotto).filter(
+            Prodotto.seriale == prodotto.seriale
         ).first()
         
-        vendita_case_insensitive = db.query(Vendita).filter(
-            func.lower(Vendita.seriale) == func.lower(prodotto.seriale)
+        vendita_case_insensitive = db.query(Vendita).join(Prodotto).filter(
+            func.lower(Prodotto.seriale) == func.lower(prodotto.seriale)
         ).first()
         
-        vendite_contenenti = db.query(Vendita).filter(
-            Vendita.seriale.ilike(f"%{prodotto.seriale}%")
+        vendite_contenenti = db.query(Vendita).join(Prodotto).filter(
+            Prodotto.seriale.ilike(f"%{prodotto.seriale}%")
         ).all()
         
         # Calcola giorni in stock se possibile
