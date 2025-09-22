@@ -283,42 +283,66 @@ async def get_prodotti_con_seriali_senza_vendite(db: Session = Depends(get_db)):
 async def debug_sync_vendite(db: Session = Depends(get_db)):
     """Debug per identificare problemi sincronizzazione vendite"""
     
+    # Usa la stessa logica del dashboard: prodotti senza vendite associate
     prodotti_non_venduti = db.query(Prodotto).filter(
-        Prodotto.venduto == False
-    ).all()
+        ~Prodotto.vendite.any()  # Nessuna vendita associata
+    ).options(joinedload(Prodotto.acquisto)).all()
     
     debug_info = []
     
     for prodotto in prodotti_non_venduti:
+        # Salta prodotti senza seriale
+        if not prodotto.seriale or prodotto.seriale in ["", "???", "N/A"]:
+            continue
+            
+        # Cerca vendite per questo seriale
         vendita_esatta = db.query(Vendita).filter(
             Vendita.seriale == prodotto.seriale
         ).first()
         
-        vendita_simile = db.query(Vendita).filter(
-            Vendita.seriale.ilike(f"%{prodotto.seriale}%")
+        vendita_case_insensitive = db.query(Vendita).filter(
+            func.lower(Vendita.seriale) == func.lower(prodotto.seriale)
         ).first()
         
         vendite_contenenti = db.query(Vendita).filter(
             Vendita.seriale.ilike(f"%{prodotto.seriale}%")
         ).all()
         
+        # Calcola giorni in stock se possibile
+        giorni_stock = None
+        if prodotto.acquisto and prodotto.acquisto.data_consegna:
+            from datetime import datetime
+            giorni_stock = (datetime.now().date() - prodotto.acquisto.data_consegna).days
+        
         debug_info.append({
+            "prodotto_id": prodotto.id,
             "seriale": prodotto.seriale,
-            "descrizione": prodotto.descrizione,
-            "acquisto_id": prodotto.acquisto_id,
+            "descrizione": prodotto.prodotto_descrizione,
+            "acquisto_id": prodotto.acquisto.id_acquisto_univoco if prodotto.acquisto else None,
             "vendita_esatta": vendita_esatta.id if vendita_esatta else None,
-            "vendita_simile": vendita_simile.id if vendita_simile else None,
-            "vendite_contenenti": len(vendite_contenenti),
-            "giorni_in_stock": prodotto.giorni_in_stock
+            "vendita_case_insensitive": vendita_case_insensitive.id if vendita_case_insensitive else None,
+            "vendite_contenenti_count": len(vendite_contenenti),
+            "giorni_in_stock": giorni_stock,
+            "problema": "SERIALE_NON_SINCRONIZZATO" if vendita_esatta else "POSSIBILE_MISMATCH" if vendite_contenenti else "VENDITA_MANCANTE"
         })
     
+    # Ordina per problemi più gravi prima
+    debug_info.sort(key=lambda x: (x["problema"] != "SERIALE_NON_SINCRONIZZATO", x["giorni_in_stock"] or 0), reverse=True)
+    
     return {
-        "prodotti_non_venduti_count": len(prodotti_non_venduti),
-        "debug_dettagli": debug_info[:20],
+        "prodotti_in_stock_totali": len(prodotti_non_venduti),
+        "prodotti_con_seriali_in_stock": len(debug_info),
+        "debug_dettagli": debug_info[:50],  # Aumentato per vedere più dettagli
         "statistiche": {
             "con_vendita_esatta": len([d for d in debug_info if d["vendita_esatta"]]),
-            "con_vendita_simile": len([d for d in debug_info if d["vendita_simile"]]),
-            "con_vendite_contenenti": len([d for d in debug_info if d["vendite_contenenti"] > 0])
+            "con_vendita_case_insensitive": len([d for d in debug_info if d["vendita_case_insensitive"]]),
+            "con_vendite_contenenti": len([d for d in debug_info if d["vendite_contenenti_count"] > 0]),
+            "solo_vendita_mancante": len([d for d in debug_info if d["problema"] == "VENDITA_MANCANTE"])
+        },
+        "breakdown_problemi": {
+            "SERIALE_NON_SINCRONIZZATO": len([d for d in debug_info if d["problema"] == "SERIALE_NON_SINCRONIZZATO"]),
+            "POSSIBILE_MISMATCH": len([d for d in debug_info if d["problema"] == "POSSIBILE_MISMATCH"]), 
+            "VENDITA_MANCANTE": len([d for d in debug_info if d["problema"] == "VENDITA_MANCANTE"])
         }
     }
 
