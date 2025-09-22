@@ -418,6 +418,7 @@ async def lista_acquisti(request: Request, db: Session = Depends(get_db)):
     
     # Parametri di filtro dalla query string
     filtro_stato = request.query_params.get("filtro_stato", "tutti")
+    filtro_acquirente = request.query_params.get("filtro_acquirente", "tutti")  # NUOVO FILTRO
     ordinamento = request.query_params.get("ordinamento", "data_desc") 
     cerca = request.query_params.get("cerca", "")
     
@@ -428,6 +429,16 @@ async def lista_acquisti(request: Request, db: Session = Depends(get_db)):
     
     # Conta totali per statistiche
     acquisti_totali = query.count()
+    
+    # NUOVO: Filtro per acquirente
+    if filtro_acquirente and filtro_acquirente != "tutti":
+        query = query.filter(Acquisto.acquirente == filtro_acquirente)
+    
+    # Ottieni lista acquirenti per dropdown
+    acquirenti_disponibili = db.query(Acquisto.acquirente).distinct().filter(
+        Acquisto.acquirente.isnot(None)
+    ).all()
+    acquirenti_lista = sorted([a[0] for a in acquirenti_disponibili])
     
     # Applica filtri di ricerca
     if cerca:
@@ -521,6 +532,8 @@ async def lista_acquisti(request: Request, db: Session = Depends(get_db)):
         "acquisti": acquisti,
         "acquisti_totali": acquisti_totali,
         "filtro_stato": filtro_stato,
+        "filtro_acquirente": filtro_acquirente,  # NUOVO
+        "acquirenti_lista": acquirenti_lista,    # NUOVO
         "ordinamento": ordinamento,  
         "cerca": cerca
     })
@@ -869,6 +882,7 @@ async def crea_nuovo_acquisto(request: Request, db: Session = Depends(get_db)):
             data_pagamento=datetime.strptime(form_data.get("data_pagamento"), "%Y-%m-%d").date() if form_data.get("data_pagamento") else None,
             data_consegna=datetime.strptime(form_data.get("data_consegna"), "%Y-%m-%d").date() if form_data.get("data_consegna") else None,
             note=form_data.get("note"),
+            acquirente=form_data.get("acquirente", "Alessio"),  # Default Alessio
             created_at=datetime.now()
         )
         
@@ -974,6 +988,7 @@ async def modifica_acquisto(acquisto_id: int, request: Request, db: Session = De
         acquisto.data_pagamento = datetime.strptime(form_data.get("data_pagamento"), "%Y-%m-%d").date() if form_data.get("data_pagamento") else None
         acquisto.data_consegna = datetime.strptime(form_data.get("data_consegna"), "%Y-%m-%d").date() if form_data.get("data_consegna") else None
         acquisto.note = form_data.get("note")
+        acquisto.acquirente = form_data.get("acquirente", acquisto.acquirente or "Alessio")  # Mantieni esistente se non specificato
         
         # Aggiorna prodotti esistenti
         prodotti_data = {}
@@ -1216,10 +1231,30 @@ async def salva_seriali_acquisto(acquisto_id: int, request: Request, db: Session
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Errore nel salvataggio: {str(e)}")
 
-@app.get("/health")
-async def health_check():
-    """Health check per Railway"""
-    return {"status": "healthy", "timestamp": datetime.now().isoformat()}
+@app.post("/admin/add-acquirente-field")
+async def add_acquirente_field(db: Session = Depends(get_db)):
+    """Aggiunge il campo acquirente e imposta tutti gli esistenti come 'Alessio'"""
+    try:
+        # Questa è una migrazione one-time
+        # In produzione useresti Alembic, ma per semplicità facciamo così
+        
+        # 1. Aggiungi colonna (se non esiste già)
+        try:
+            db.execute("ALTER TABLE acquisti ADD COLUMN acquirente VARCHAR(100) DEFAULT 'Alessio'")
+        except Exception as e:
+            if "already exists" not in str(e).lower():
+                raise e
+        
+        # 2. Aggiorna tutti gli acquisti esistenti
+        db.execute("UPDATE acquisti SET acquirente = 'Alessio' WHERE acquirente IS NULL")
+        
+        db.commit()
+        
+        return {"success": True, "message": "Campo acquirente aggiunto e acquisti esistenti assegnati ad Alessio"}
+        
+    except Exception as e:
+        db.rollback()
+        return {"success": False, "error": str(e)}
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))

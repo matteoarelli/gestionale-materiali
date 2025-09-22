@@ -20,22 +20,31 @@
                         </div>
                         <div class="card-body">
                             <div class="row">
-                                <div class="col-md-4 mb-3">
+                                <div class="col-md-3 mb-3">
                                     <label for="id_acquisto_univoco" class="form-label">ID Acquisto *</label>
                                     <input type="text" class="form-control" id="id_acquisto_univoco" 
                                            name="id_acquisto_univoco" required>
                                     <small class="form-text text-muted">Identificativo univoco per questo acquisto</small>
                                 </div>
-                                <div class="col-md-4 mb-3">
+                                <div class="col-md-3 mb-3">
                                     <label for="dove_acquistato" class="form-label">Dove Acquistato *</label>
                                     <input type="text" class="form-control" id="dove_acquistato" 
                                            name="dove_acquistato" required>
                                     <small class="form-text text-muted">Piattaforma o negozio</small>
                                 </div>
-                                <div class="col-md-4 mb-3">
+                                <div class="col-md-3 mb-3">
                                     <label for="venditore" class="form-label">Venditore *</label>
                                     <input type="text" class="form-control" id="venditore" 
                                            name="venditore" required>
+                                </div>
+                                <div class="col-md-3 mb-3">
+                                    <label for="acquirente" class="form-label">Acquirente *</label>
+                                    <select class="form-select" id="acquirente" name="acquirente" required>
+                                        <option value="Alessio" selected>Alessio</option>
+                                        <option value="Matteo">Matteo</option>
+                                        <option value="Altri">Altri</option>
+                                    </select>
+                                    <small class="form-text text-muted">Chi ha effettuato l'acquisto</small>
                                 </div>
                             </div>
                             

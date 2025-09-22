@@ -155,6 +155,15 @@
                             </div>
                             <small class="text-muted">{{ acquisto.dove_acquistato }}</small>
                             
+                            <!-- NUOVO: Badge Acquirente -->
+                            {% if acquisto.acquirente %}
+                            <div class="mt-1">
+                                <span class="badge {% if acquisto.acquirente == 'Alessio' %}bg-primary{% elif acquisto.acquirente == 'Matteo' %}bg-success{% else %}bg-info{% endif %}" style="font-size: 0.65rem;">
+                                    <i class="bi bi-person"></i> {{ acquisto.acquirente }}
+                                </span>
+                            </div>
+                            {% endif %}
+                            
                             <!-- Problemi -->
                             {% if acquisto.problemi_list %}
                                 <div class="mt-1">
