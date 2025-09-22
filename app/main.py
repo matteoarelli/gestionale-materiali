@@ -81,6 +81,96 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
         "ultime_vendite": ultime_vendite
     })
 
+@app.post("/api/create-sale-from-purchase")
+async def create_sale_from_purchase(request: Request, db: Session = Depends(get_db)):
+    """API per creare vendita manuale da pagina acquisti"""
+    try:
+        data = await request.json()
+        
+        # Parametri richiesti
+        prodotto_id = data.get("prodotto_id")
+        canale_vendita = data.get("canale_vendita")
+        prezzo_vendita = float(data.get("prezzo_vendita", 0))
+        data_vendita_str = data.get("data_vendita")
+        note_vendita = data.get("note_vendita", "")
+        
+        if not all([prodotto_id, canale_vendita, prezzo_vendita]):
+            return {"success": False, "error": "Parametri mancanti"}
+        
+        # Trova il prodotto
+        prodotto = db.query(Prodotto).filter(Prodotto.id == prodotto_id).first()
+        if not prodotto:
+            return {"success": False, "error": "Prodotto non trovato"}
+        
+        # Controllo seriali duplicati - NO SERIALI DUPLICATI
+        if prodotto.vendite:
+            return {"success": False, "error": f"Prodotto già venduto"}
+        
+        # Controllo seriale duplicato su altri prodotti
+        if prodotto.seriale:
+            vendita_esistente = db.query(Vendita).join(Prodotto).filter(
+                Prodotto.seriale == prodotto.seriale,
+                Prodotto.id != prodotto_id
+            ).first()
+            if vendita_esistente:
+                return {"success": False, "error": f"Seriale '{prodotto.seriale}' già venduto"}
+        
+        # Parse data vendita
+        try:
+            if data_vendita_str:
+                data_vendita = datetime.strptime(data_vendita_str, "%Y-%m-%d").date()
+            else:
+                data_vendita = date.today()
+        except:
+            return {"success": False, "error": "Formato data non valido"}
+        
+        # Calcola commissioni automaticamente
+        commissioni_canali = {
+            'BONIFICO BANCARIO': 0.0,
+            'CARTA DI CREDITO': 0.0,
+            'BACKMARKET': 0.15,
+            'CDISCOUNT': 0.15,
+            'CONTRASSEGNO': 0.0,
+            'EBAY': 0.08,
+            'PAYPAL': 0.04,
+            'PERMUTA': 0.0,
+            'REFURBED': 0.17,
+            'SEDE-BANCOMAT': 0.0,
+            'SEDE-CONTANTI': 0.0,
+            'SEDE-PERMUTA': 0.0
+        }
+        
+        commissione_percentuale = commissioni_canali.get(canale_vendita.upper(), 0.0)
+        commissioni = prezzo_vendita * commissione_percentuale
+        
+        # Crea la vendita
+        nuova_vendita = Vendita(
+            prodotto_id=prodotto_id,
+            data_vendita=data_vendita,
+            canale_vendita=canale_vendita,
+            prezzo_vendita=prezzo_vendita,
+            commissioni=commissioni,
+            synced_from_invoicex=False,
+            invoicex_id=f"MANUAL_{prodotto_id}_{int(datetime.now().timestamp())}",
+            note_vendita=note_vendita
+        )
+        
+        db.add(nuova_vendita)
+        db.commit()
+        db.refresh(nuova_vendita)
+        
+        return {
+            "success": True, 
+            "message": f"Vendita creata: €{prezzo_vendita}",
+            "vendita_id": nuova_vendita.id,
+            "ricavo_netto": nuova_vendita.ricavo_netto,
+            "commissioni_applicate": commissioni
+        }
+        
+    except Exception as e:
+        db.rollback()
+        return {"success": False, "error": f"Errore: {str(e)}"}
+
 @app.get("/da-gestire", response_class=HTMLResponse)
 async def da_gestire(request: Request, db: Session = Depends(get_db)):
     """Pagina Da Gestire - elementi che richiedono attenzione"""
@@ -148,7 +238,7 @@ async def inserisci_seriali_multipli_form(request: Request, db: Session = Depend
             }
         prodotti_raggruppati[acquisto_id]['prodotti'].append(prodotto)
     
-    # Ordina per priorità (acquisti arrivati da più tempo prima)
+    # Ordina per prioritÃ  (acquisti arrivati da piÃ¹ tempo prima)
     prodotti_raggruppati = dict(sorted(
         prodotti_raggruppati.items(),
         key=lambda x: x[1]['acquisto'].data_consegna or date.min,
@@ -196,15 +286,15 @@ async def salva_seriali_multipli(request: Request, db: Session = Depends(get_db)
             continue
             
         try:
-            # Verifica che il seriale non esista già 
+            # Verifica che il seriale non esista giÃ  
             if db.query(Prodotto).filter(Prodotto.seriale == nuovo_seriale).first():
-                errori.append(f"Seriale {nuovo_seriale} già esistente nel database")
+                errori.append(f"Seriale {nuovo_seriale} giÃ  esistente nel database")
                 seriali_duplicati += 1
                 continue
             
             # Aggiorna il prodotto
             prodotto = db.query(Prodotto).filter(Prodotto.id == int(prodotto_id)).first()
-            if prodotto and not prodotto.seriale:  # Solo se non ha già un seriale
+            if prodotto and not prodotto.seriale:  # Solo se non ha giÃ  un seriale
                 prodotto.seriale = nuovo_seriale
                 seriali_inseriti += 1
                 
@@ -241,7 +331,7 @@ async def problemi(request: Request, db: Session = Depends(get_db)):
     
     now = datetime.now()
     
-    # Vendite lente: prodotti in stock da più di 30 giorni
+    # Vendite lente: prodotti in stock da piÃ¹ di 30 giorni
     vendite_lente = []
     
     # Query per prodotti non venduti con acquisti arrivati
@@ -263,7 +353,7 @@ async def problemi(request: Request, db: Session = Depends(get_db)):
                 'costo_unitario': costo_unitario
             })
     
-    # Margini critici: acquisti con marginalità < 25% (solo vendite complete o parziali)
+    # Margini critici: acquisti con marginalitÃ  < 25% (solo vendite complete o parziali)
     margini_critici = []
     
     # Query per acquisti con almeno una vendita
@@ -309,7 +399,7 @@ async def problemi(request: Request, db: Session = Depends(get_db)):
                 'margine_percentuale': margine_percentuale
             })
     
-    # Ordina per gravità 
+    # Ordina per gravitÃ  
     vendite_lente.sort(key=lambda x: x['giorni_stock'], reverse=True)
     margini_critici.sort(key=lambda x: x['margine_percentuale'])
     
@@ -463,7 +553,7 @@ async def performance_dashboard(request: Request, db: Session = Depends(get_db))
             for p in prodotti_business if p.vendite
         )
         
-        # Marginalità (costo diviso per prodotti business, non totali)
+        # MarginalitÃ  (costo diviso per prodotti business, non totali)
         costo_per_prodotto = acquisto.costo_totale / len(acquisto.prodotti)  # Costo unitario originale
         costo_business = costo_per_prodotto * prodotti_totali  # Costo solo prodotti business
         margine = ricavi_totali - costo_business

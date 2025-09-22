@@ -132,7 +132,7 @@
                         <th>Date</th>
                         <th>Vendita</th>
                         <th>Performance</th>
-                        <th width="160px">Azioni</th>
+                        <th width="200px">Azioni</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -340,7 +340,25 @@
                                     {% endif %}
                                 </div>
                                 
-                                <!-- Seconda riga azioni -->
+                                <!-- NUOVA: Riga pulsanti Vendi -->
+                                <div class="btn-group mb-1" role="group" style="flex-wrap: wrap;">
+                                    {% for prodotto in acquisto.prodotti %}
+                                        {% if not prodotto.vendite %}
+                                        <button type="button" class="btn btn-sm btn-success mb-1" 
+                                                title="Vendi: {{ prodotto.prodotto_descrizione[:30] }}{% if prodotto.prodotto_descrizione|length > 30 %}...{% endif %}"
+                                                onclick="vendiProdotto({{ prodotto.id }}, '{{ acquisto.id_acquisto_univoco }}', '{{ prodotto.seriale or '' }}', '{{ prodotto.prodotto_descrizione|replace("'", "\\'") or '' }}', {{ (acquisto.costo_totale/acquisto.numero_prodotti)|round(2) }})">
+                                            <i class="bi bi-cash-coin"></i> 
+                                            {% if prodotto.seriale %}
+                                                {{ prodotto.seriale[:6] }}
+                                            {% else %}
+                                                P{{ loop.index }}
+                                            {% endif %}
+                                        </button>
+                                        {% endif %}
+                                    {% endfor %}
+                                </div>
+                                
+                                <!-- Ultima riga azioni -->
                                 <div class="btn-group" role="group">
                                     <button type="button" class="btn btn-sm btn-outline-danger" 
                                             title="Elimina acquisto" onclick="confermaEliminazione({{ acquisto.id }}, '{{ acquisto.id_acquisto_univoco }}')">
@@ -406,6 +424,171 @@
 </div>
 {% endif %}
 
+<!-- Modal per creare vendita manuale -->
+<div class="modal fade" id="modalCreaVendita" tabindex="-1" aria-labelledby="modalCreaVenditaLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title" id="modalCreaVenditaLabel">
+                    <i class="bi bi-cash-coin"></i> Crea Vendita Manuale
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="formCreaVendita">
+                    <div class="row">
+                        <!-- Info prodotto pre-compilata -->
+                        <div class="col-12">
+                            <div class="card bg-light mb-3">
+                                <div class="card-body">
+                                    <h6 class="card-title">Prodotto Selezionato</h6>
+                                    <div class="row">
+                                        <div class="col-md-4">
+                                            <strong>Seriale:</strong>
+                                            <span id="modal-seriale" class="text-primary">-</span>
+                                        </div>
+                                        <div class="col-md-8">
+                                            <strong>Descrizione:</strong>
+                                            <span id="modal-descrizione">-</span>
+                                        </div>
+                                    </div>
+                                    <div class="row mt-2">
+                                        <div class="col-md-4">
+                                            <strong>Costo Acquisto:</strong>
+                                            <span id="modal-costo" class="text-warning">-</span>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <strong>Margine Consigliato (25%):</strong>
+                                            <span id="modal-prezzo-consigliato" class="text-success">-</span>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <strong>Acquisto ID:</strong>
+                                            <span id="modal-acquisto-id">-</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <!-- Dati vendita -->
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="canale_vendita" class="form-label">
+                                    <i class="bi bi-shop"></i> Canale di Vendita *
+                                </label>
+                                <select id="canale_vendita" name="canale_vendita" class="form-select" required>
+                                    <option value="">-- Seleziona Canale --</option>
+                                    <option value="EBAY">eBay (8% commissioni)</option>
+                                    <option value="BACKMARKET">BackMarket (15% commissioni)</option>
+                                    <option value="REFURBED">Refurbed (17% commissioni)</option>
+                                    <option value="CDISCOUNT">CDiscount (15% commissioni)</option>
+                                    <option value="PAYPAL">PayPal (4% commissioni)</option>
+                                    <option value="BONIFICO BANCARIO">Bonifico Bancario (0% commissioni)</option>
+                                    <option value="CARTA DI CREDITO">Carta di Credito (0% commissioni)</option>
+                                    <option value="CONTRASSEGNO">Contrassegno (0% commissioni)</option>
+                                    <option value="SEDE-CONTANTI">Sede - Contanti (0% commissioni)</option>
+                                    <option value="SEDE-BANCOMAT">Sede - Bancomat (0% commissioni)</option>
+                                    <option value="SEDE-PERMUTA">Sede - Permuta (0% commissioni)</option>
+                                    <option value="PERMUTA">Permuta (0% commissioni)</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="prezzo_vendita" class="form-label">
+                                    <i class="bi bi-currency-euro"></i> Prezzo di Vendita *
+                                </label>
+                                <div class="input-group">
+                                    <span class="input-group-text">€</span>
+                                    <input type="number" id="prezzo_vendita" name="prezzo_vendita" 
+                                           class="form-control" step="0.01" min="0" required>
+                                    <button type="button" class="btn btn-outline-secondary" 
+                                            onclick="usaPrezzoConsigliato()" title="Usa prezzo consigliato">
+                                        <i class="bi bi-magic"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="data_vendita" class="form-label">
+                                    <i class="bi bi-calendar"></i> Data Vendita
+                                </label>
+                                <input type="date" id="data_vendita" name="data_vendita" class="form-control">
+                            </div>
+                        </div>
+
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">Commissioni Automatiche</label>
+                                <div class="form-control-plaintext" id="commissioni-preview">
+                                    Seleziona canale e prezzo per calcolare le commissioni
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-12">
+                            <div class="mb-3">
+                                <label for="note_vendita" class="form-label">
+                                    <i class="bi bi-chat-text"></i> Note Vendita
+                                </label>
+                                <textarea id="note_vendita" name="note_vendita" class="form-control" rows="2"
+                                          placeholder="Note aggiuntive sulla vendita (opzionale)"></textarea>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Anteprima calcoli -->
+                    <div id="anteprima-calcoli" class="card border-info" style="display: none;">
+                        <div class="card-body">
+                            <h6 class="card-title text-info">
+                                <i class="bi bi-calculator"></i> Anteprima Marginalità
+                            </h6>
+                            <div class="row text-center">
+                                <div class="col-md-3">
+                                    <strong>Ricavo Lordo</strong><br>
+                                    <span id="ricavo-lordo" class="text-primary">€0.00</span>
+                                </div>
+                                <div class="col-md-3">
+                                    <strong>Commissioni</strong><br>
+                                    <span id="commissioni-calcolo" class="text-warning">€0.00</span>
+                                </div>
+                                <div class="col-md-3">
+                                    <strong>Ricavo Netto</strong><br>
+                                    <span id="ricavo-netto" class="text-success">€0.00</span>
+                                </div>
+                                <div class="col-md-3">
+                                    <strong>Margine</strong><br>
+                                    <span id="margine-percentuale" class="fw-bold">0.0%</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <input type="hidden" id="prodotto_id" name="prodotto_id">
+                    <input type="hidden" id="costo_prodotto" name="costo_prodotto">
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                    <i class="bi bi-x-circle"></i> Annulla
+                </button>
+                <button type="button" class="btn btn-success" onclick="salvaNuovaVendita()" id="btn-salva-vendita">
+                    <i class="bi bi-check-circle"></i> Crea Vendita
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <style>
 .table-success-light {
     background-color: rgba(25, 135, 84, 0.1);
@@ -441,8 +624,222 @@
 }
 </style>
 
-<!-- Messaggio di successo per seriali inseriti -->
 <script>
+// Variabili globali per il modal
+let currentProdottoData = {};
+
+// Commissioni per canale (stesso mapping del backend)
+const commissioni_canali = {
+    'BONIFICO BANCARIO': 0.0,
+    'CARTA DI CREDITO': 0.0,
+    'BACKMARKET': 0.15,
+    'CDISCOUNT': 0.15,
+    'CONTRASSEGNO': 0.0,
+    'EBAY': 0.08,
+    'PAYPAL': 0.04,
+    'PERMUTA': 0.0,
+    'REFURBED': 0.17,
+    'SEDE-BANCOMAT': 0.0,
+    'SEDE-CONTANTI': 0.0,
+    'SEDE-PERMUTA': 0.0
+};
+
+// Funzione per aprire il modal di vendita per un prodotto specifico
+function vendiProdotto(prodottoId, acquistoId, seriale, descrizione, costoUnitario) {
+    const prodottoData = {
+        prodotto_id: prodottoId,
+        seriale: seriale || null,
+        descrizione: descrizione || 'Prodotto senza descrizione',
+        costo_unitario: costoUnitario,
+        acquisto_id: acquistoId
+    };
+    
+    apriModalVendita(prodottoData);
+}
+
+function apriModalVendita(prodottoData) {
+    // Memorizza i dati del prodotto
+    currentProdottoData = prodottoData;
+    
+    // Popola i campi del modal
+    document.getElementById('modal-seriale').textContent = prodottoData.seriale || 'Nessun seriale';
+    document.getElementById('modal-descrizione').textContent = prodottoData.descrizione || 'N/A';
+    document.getElementById('modal-costo').textContent = '€' + parseFloat(prodottoData.costo_unitario || 0).toFixed(2);
+    document.getElementById('modal-acquisto-id').textContent = prodottoData.acquisto_id || 'N/A';
+    
+    // Calcola prezzo consigliato (25% di margine)
+    const costoUnitario = parseFloat(prodottoData.costo_unitario || 0);
+    const prezzoConsigliato = costoUnitario * 1.25; // 25% di margine
+    document.getElementById('modal-prezzo-consigliato').textContent = '€' + prezzoConsigliato.toFixed(2);
+    
+    // Popola i campi hidden
+    document.getElementById('prodotto_id').value = prodottoData.prodotto_id;
+    document.getElementById('costo_prodotto').value = costoUnitario;
+    
+    // Imposta data odierna come default
+    document.getElementById('data_vendita').value = new Date().toISOString().split('T')[0];
+    
+    // Reset form
+    document.getElementById('formCreaVendita').reset();
+    document.getElementById('data_vendita').value = new Date().toISOString().split('T')[0];
+    document.getElementById('anteprima-calcoli').style.display = 'none';
+    
+    // Mostra il modal
+    const modal = new bootstrap.Modal(document.getElementById('modalCreaVendita'));
+    modal.show();
+}
+
+function usaPrezzoConsigliato() {
+    const costoUnitario = parseFloat(document.getElementById('costo_prodotto').value || 0);
+    const prezzoConsigliato = costoUnitario * 1.25;
+    document.getElementById('prezzo_vendita').value = prezzoConsigliato.toFixed(2);
+    
+    // Aggiorna anteprima se canale è selezionato
+    aggiornaAnteprimaCalcoli();
+}
+
+function aggiornaAnteprimaCalcoli() {
+    const canale = document.getElementById('canale_vendita').value;
+    const prezzoVendita = parseFloat(document.getElementById('prezzo_vendita').value || 0);
+    const costoUnitario = parseFloat(document.getElementById('costo_prodotto').value || 0);
+    
+    if (canale && prezzoVendita > 0) {
+        const commissionePerc = commissioni_canali[canale.toUpperCase()] || 0;
+        const commissioni = prezzoVendita * commissionePerc;
+        const ricavoNetto = prezzoVendita - commissioni;
+        const margine = ricavoNetto - costoUnitario;
+        const marginePerc = costoUnitario > 0 ? (margine / costoUnitario * 100) : 0;
+        
+        // Aggiorna UI
+        document.getElementById('ricavo-lordo').textContent = '€' + prezzoVendita.toFixed(2);
+        document.getElementById('commissioni-calcolo').textContent = '€' + commissioni.toFixed(2);
+        document.getElementById('ricavo-netto').textContent = '€' + ricavoNetto.toFixed(2);
+        
+        const margineEl = document.getElementById('margine-percentuale');
+        margineEl.textContent = marginePerc.toFixed(1) + '%';
+        
+        // Colora il margine in base alla performance
+        margineEl.className = 'fw-bold';
+        if (marginePerc >= 25) {
+            margineEl.classList.add('text-success');
+        } else if (marginePerc >= 15) {
+            margineEl.classList.add('text-warning');
+        } else {
+            margineEl.classList.add('text-danger');
+        }
+        
+        // Aggiorna preview commissioni
+        document.getElementById('commissioni-preview').textContent = 
+            `${(commissionePerc * 100).toFixed(1)}% - €${commissioni.toFixed(2)} di commissioni`;
+        
+        document.getElementById('anteprima-calcoli').style.display = 'block';
+    } else {
+        document.getElementById('anteprima-calcoli').style.display = 'none';
+        document.getElementById('commissioni-preview').textContent = 
+            'Seleziona canale e prezzo per calcolare le commissioni';
+    }
+}
+
+// Event listeners per aggiornamento real-time
+document.getElementById('canale_vendita').addEventListener('change', aggiornaAnteprimaCalcoli);
+document.getElementById('prezzo_vendita').addEventListener('input', aggiornaAnteprimaCalcoli);
+
+async function salvaNuovaVendita() {
+    const form = document.getElementById('formCreaVendita');
+    const btnSalva = document.getElementById('btn-salva-vendita');
+    
+    // Validazione form
+    if (!form.checkValidity()) {
+        form.reportValidity();
+        return;
+    }
+    
+    // Disabilita pulsante per evitare doppi submit
+    btnSalva.disabled = true;
+    btnSalva.innerHTML = '<i class="bi bi-hourglass-split"></i> Creando...';
+    
+    const formData = {
+        prodotto_id: document.getElementById('prodotto_id').value,
+        canale_vendita: document.getElementById('canale_vendita').value,
+        prezzo_vendita: document.getElementById('prezzo_vendita').value,
+        data_vendita: document.getElementById('data_vendita').value,
+        note_vendita: document.getElementById('note_vendita').value
+    };
+    
+    try {
+        const response = await fetch('/api/create-sale-from-purchase', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(formData)
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            // Successo - chiudi modal e aggiorna pagina
+            const modal = bootstrap.Modal.getInstance(document.getElementById('modalCreaVendita'));
+            modal.hide();
+            
+            // Mostra messaggio di successo
+            showSuccessAlert(result.message + ` (Ricavo netto: €${result.ricavo_netto.toFixed(2)})`);
+            
+            // Ricarica la pagina per vedere i cambiamenti
+            setTimeout(() => location.reload(), 1500);
+            
+        } else {
+            // Errore - mostra messaggio
+            showErrorAlert(result.error);
+        }
+        
+    } catch (error) {
+        console.error('Errore:', error);
+        showErrorAlert('Errore di connessione. Riprova.');
+    } finally {
+        // Riabilita pulsante
+        btnSalva.disabled = false;
+        btnSalva.innerHTML = '<i class="bi bi-check-circle"></i> Crea Vendita';
+    }
+}
+
+function showSuccessAlert(message) {
+    const alert = document.createElement('div');
+    alert.className = 'alert alert-success alert-dismissible fade show position-fixed';
+    alert.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 300px;';
+    alert.innerHTML = `
+        <i class="bi bi-check-circle"></i> ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    `;
+    document.body.appendChild(alert);
+    
+    // Auto-rimuovi dopo 5 secondi
+    setTimeout(() => {
+        if (alert.parentNode) {
+            alert.parentNode.removeChild(alert);
+        }
+    }, 5000);
+}
+
+function showErrorAlert(message) {
+    const alert = document.createElement('div');
+    alert.className = 'alert alert-danger alert-dismissible fade show position-fixed';
+    alert.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 300px;';
+    alert.innerHTML = `
+        <i class="bi bi-exclamation-triangle"></i> ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    `;
+    document.body.appendChild(alert);
+    
+    // Auto-rimuovi dopo 8 secondi
+    setTimeout(() => {
+        if (alert.parentNode) {
+            alert.parentNode.removeChild(alert);
+        }
+    }, 8000);
+}
+
+// Messaggio di successo per seriali inseriti
 if (window.location.search.includes('seriali_inserted=1')) {
     const alert = document.createElement('div');
     alert.className = 'alert alert-success alert-dismissible fade show mb-4';
