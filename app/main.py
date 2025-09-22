@@ -1244,22 +1244,24 @@ async def salva_seriali_acquisto(acquisto_id: int, request: Request, db: Session
 async def add_acquirente_field(db: Session = Depends(get_db)):
     """Aggiunge il campo acquirente e imposta tutti gli esistenti come 'Alessio'"""
     try:
-        # Questa è una migrazione one-time
-        # In produzione useresti Alembic, ma per semplicità facciamo così
+        from sqlalchemy import text
         
         # 1. Aggiungi colonna (se non esiste già)
         try:
-            db.execute("ALTER TABLE acquisti ADD COLUMN acquirente VARCHAR(100) DEFAULT 'Alessio'")
+            db.execute(text("ALTER TABLE acquisti ADD COLUMN acquirente VARCHAR(100) DEFAULT 'Alessio'"))
         except Exception as e:
-            if "already exists" not in str(e).lower():
+            if "already exists" not in str(e).lower() and "duplicate column" not in str(e).lower():
                 raise e
         
         # 2. Aggiorna tutti gli acquisti esistenti
-        db.execute("UPDATE acquisti SET acquirente = 'Alessio' WHERE acquirente IS NULL")
+        result = db.execute(text("UPDATE acquisti SET acquirente = 'Alessio' WHERE acquirente IS NULL"))
         
         db.commit()
         
-        return {"success": True, "message": "Campo acquirente aggiunto e acquisti esistenti assegnati ad Alessio"}
+        return {
+            "success": True, 
+            "message": f"Campo acquirente aggiunto. {result.rowcount} acquisti assegnati ad Alessio"
+        }
         
     except Exception as e:
         db.rollback()
