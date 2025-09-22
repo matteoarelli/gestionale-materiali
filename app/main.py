@@ -322,6 +322,425 @@ async def problemi(request: Request, db: Session = Depends(get_db)):
         "problemi_count": problemi_count
     })
 
+@app.get("/acquisti", response_class=HTMLResponse)
+async def lista_acquisti(request: Request, db: Session = Depends(get_db)):
+    """Pagina lista acquisti con filtri avanzati e ordinamento"""
+    
+    # Parametri di filtro dalla query string
+    filtro_stato = request.query_params.get("filtro_stato", "tutti")
+    ordinamento = request.query_params.get("ordinamento", "data_desc") 
+    cerca = request.query_params.get("cerca", "")
+    
+    # Query base con eager loading
+    query = db.query(Acquisto).options(
+        joinedload(Acquisto.prodotti).joinedload(Prodotto.vendite)
+    )
+    
+    # Conta totali per statistiche
+    acquisti_totali = query.count()
+    
+    # Applica filtri di ricerca
+    if cerca:
+        query = query.filter(
+            or_(
+                Acquisto.id_acquisto_univoco.ilike(f"%{cerca}%"),
+                Acquisto.venditore.ilike(f"%{cerca}%"),  
+                Acquisto.dove_acquistato.ilike(f"%{cerca}%"),
+                Acquisto.prodotti.any(Prodotto.prodotto_descrizione.ilike(f"%{cerca}%"))
+            )
+        )
+    
+    # Applica filtri di stato
+    if filtro_stato == "in_stock":
+        query = query.filter(
+            Acquisto.prodotti.any(~Prodotto.vendite.any())
+        )
+    elif filtro_stato == "venduti":
+        query = query.filter(
+            ~Acquisto.prodotti.any(~Prodotto.vendite.any())
+        )
+    elif filtro_stato == "parziali":  
+        query = query.filter(
+            and_(
+                Acquisto.prodotti.any(Prodotto.vendite.any()),
+                Acquisto.prodotti.any(~Prodotto.vendite.any())
+            )
+        )
+    elif filtro_stato == "senza_seriali":
+        query = query.filter(
+            Acquisto.prodotti.any(Prodotto.seriale.is_(None))
+        )
+    elif filtro_stato == "non_arrivati":
+        query = query.filter(Acquisto.data_consegna.is_(None))
+    elif filtro_stato == "problematici":
+        query = query.filter(
+            or_(
+                Acquisto.prodotti.any(Prodotto.seriale.is_(None)),
+                Acquisto.data_consegna.is_(None),
+                and_(
+                    Acquisto.data_consegna.isnot(None),
+                    Acquisto.data_consegna < (date.today() - timedelta(days=30)),
+                    Acquisto.prodotti.any(~Prodotto.vendite.any())
+                )
+            )
+        )
+    
+    # Applica ordinamento  
+    if ordinamento == "data_asc":
+        query = query.order_by(Acquisto.data_pagamento.asc().nulls_last(), Acquisto.created_at.asc())
+    elif ordinamento == "consegna_desc":
+        query = query.order_by(Acquisto.data_consegna.desc().nulls_last())
+    elif ordinamento == "consegna_asc":
+        query = query.order_by(Acquisto.data_consegna.asc().nulls_last())
+    elif ordinamento == "costo_desc":
+        query = query.order_by(
+            (Acquisto.costo_acquisto + func.coalesce(Acquisto.costi_accessori, 0)).desc()
+        )
+    elif ordinamento == "urgenza":
+        query = query.order_by(
+            Acquisto.data_consegna.is_(None).desc(),
+            Acquisto.created_at.desc()
+        )
+    elif ordinamento == "giorni_stock":
+        query = query.order_by(
+            Acquisto.data_consegna.asc().nulls_last()
+        )
+    else:  # data_desc (default)
+        query = query.order_by(Acquisto.data_pagamento.desc().nulls_last(), Acquisto.created_at.desc())
+    
+    # Esegui query
+    acquisti = query.all()
+    
+    return templates.TemplateResponse("acquisti.html", {
+        "request": request,
+        "acquisti": acquisti,
+        "acquisti_totali": acquisti_totali,
+        "filtro_stato": filtro_stato,
+        "ordinamento": ordinamento,  
+        "cerca": cerca
+    })
+
+@app.get("/vendite", response_class=HTMLResponse)
+async def lista_vendite(request: Request, db: Session = Depends(get_db)):
+    """Pagina lista vendite"""
+    vendite = db.query(Vendita).options(joinedload(Vendita.prodotto)).order_by(Vendita.created_at.desc()).all()
+    return templates.TemplateResponse("vendite.html", {
+        "request": request,
+        "vendite": vendite
+    })
+
+@app.get("/performance", response_class=HTMLResponse)
+async def performance_dashboard(request: Request, db: Session = Depends(get_db)):
+    """Dashboard performance acquisti - analisi 30 giorni + 25% margine"""
+    
+    # Ottieni tutti gli acquisti con prodotti e vendite, ESCLUSI i fotorip
+    acquisti = db.query(Acquisto).options(
+        joinedload(Acquisto.prodotti).joinedload(Prodotto.vendite)
+    ).filter(
+        Acquisto.data_consegna.isnot(None),  # Solo acquisti arrivati
+        ~Acquisto.prodotti.any(  # Escludi acquisti che contengono prodotti fotorip
+            Prodotto.vendite.any(Vendita.canale_vendita == "RIPARAZIONI")
+        )
+    ).all()
+    
+    performance_data = []
+    
+    for acquisto in acquisti:
+        # Filtra solo prodotti NON fotorip per i calcoli
+        prodotti_business = [p for p in acquisto.prodotti 
+                           if not any(v.canale_vendita == "RIPARAZIONI" for v in p.vendite)]
+        
+        if not prodotti_business:
+            continue  # Salta acquisti che sono solo fotorip
+            
+        # Calcola performance per questo acquisto (solo prodotti business)
+        prodotti_totali = len(prodotti_business)
+        prodotti_venduti = len([p for p in prodotti_business if p.vendite])
+        
+        # Ricavi totali (solo da prodotti business)
+        ricavi_totali = sum(
+            sum(v.ricavo_netto for v in p.vendite if v.canale_vendita != "RIPARAZIONI") 
+            for p in prodotti_business if p.vendite
+        )
+        
+        # Marginalità (costo diviso per prodotti business, non totali)
+        costo_per_prodotto = acquisto.costo_totale / len(acquisto.prodotti)  # Costo unitario originale
+        costo_business = costo_per_prodotto * prodotti_totali  # Costo solo prodotti business
+        margine = ricavi_totali - costo_business
+        margine_percentuale = (margine / costo_business * 100) if costo_business > 0 else 0
+        
+        # Tempo di vendita (giorni dall'arrivo alla vendita) - solo prodotti business
+        giorni_vendita = None
+        vendita_completa = prodotti_venduti == prodotti_totali
+        
+        if vendita_completa and acquisto.data_consegna:
+            # Trova la data dell'ultima vendita (escluse riparazioni)
+            date_vendite = []
+            for prodotto in prodotti_business:
+                for vendita in prodotto.vendite:
+                    if vendita.canale_vendita != "RIPARAZIONI":
+                        date_vendite.append(vendita.data_vendita)
+            
+            if date_vendite:
+                ultima_vendita = max(date_vendite)
+                giorni_vendita = (ultima_vendita - acquisto.data_consegna).days
+        
+        # Classificazione performance (solo per prodotti business)
+        performance_issues = []
+        
+        if not vendita_completa:
+            performance_issues.append(f"Vendita parziale ({prodotti_venduti}/{prodotti_totali})")
+        elif giorni_vendita and giorni_vendita > 30:
+            performance_issues.append(f"Vendita lenta ({giorni_vendita} giorni)")
+        
+        if margine_percentuale < 25:
+            performance_issues.append(f"Margine basso ({margine_percentuale:.1f}%)")
+        
+        performance_status = "OK" if not performance_issues else "PROBLEMI"
+        
+        performance_data.append({
+            "acquisto": acquisto,
+            "prodotti_totali": prodotti_totali,  # Solo business
+            "prodotti_venduti": prodotti_venduti,  # Solo business
+            "vendita_completa": vendita_completa,
+            "ricavi_totali": ricavi_totali,
+            "margine": margine,
+            "margine_percentuale": margine_percentuale,
+            "giorni_vendita": giorni_vendita,
+            "performance_status": performance_status,
+            "performance_issues": performance_issues,
+            "costo_business": costo_business,  # Costo solo parte business
+            "ha_fotorip": len(prodotti_business) < len(acquisto.prodotti)  # Flag per UI
+        })
+    
+    # Ordina per problemi prima
+    performance_data.sort(key=lambda x: (x["performance_status"] != "PROBLEMI", x["margine_percentuale"]))
+    
+    # Statistiche generali
+    total_acquisti = len(performance_data)
+    acquisti_ok = len([p for p in performance_data if p["performance_status"] == "OK"])
+    acquisti_problemi = total_acquisti - acquisti_ok
+    
+    margine_medio = sum(p["margine_percentuale"] for p in performance_data) / total_acquisti if total_acquisti > 0 else 0
+    
+    stats = {
+        "total_acquisti": total_acquisti,
+        "acquisti_ok": acquisti_ok,
+        "acquisti_problemi": acquisti_problemi,
+        "percentuale_ok": (acquisti_ok / total_acquisti * 100) if total_acquisti > 0 else 0,
+        "margine_medio": margine_medio
+    }
+    
+    return templates.TemplateResponse("performance.html", {
+        "request": request,
+        "performance_data": performance_data,
+        "stats": stats
+    })
+
+@app.get("/statistiche", response_class=HTMLResponse)
+async def statistiche_periodiche(request: Request, db: Session = Depends(get_db)):
+    """Statistiche per periodo (settimana/mese) - ESCLUSI prodotti fotorip"""
+    
+    periodo = request.query_params.get("periodo", "mese")  # mese o settimana
+    
+    # Query base per acquisti con vendite, esclusi fotorip
+    query = db.query(Acquisto).options(
+        joinedload(Acquisto.prodotti).joinedload(Prodotto.vendite)
+    ).filter(
+        Acquisto.data_consegna.isnot(None),
+        ~Acquisto.prodotti.any(  # Escludi acquisti che contengono solo prodotti fotorip
+            Prodotto.vendite.any(Vendita.canale_vendita == "RIPARAZIONI")
+        )
+    )
+    
+    acquisti = query.all()
+    
+    # Raggruppa per periodo
+    periodi = {}
+    
+    for acquisto in acquisti:
+        if not acquisto.data_consegna:
+            continue
+        
+        # Filtra solo prodotti business (non fotorip)
+        prodotti_business = [p for p in acquisto.prodotti 
+                           if not any(v.canale_vendita == "RIPARAZIONI" for v in p.vendite)]
+        
+        if not prodotti_business:
+            continue  # Salta acquisti che sono solo fotorip
+            
+        # Determina chiave periodo
+        if periodo == "settimana":
+            # Settimana ISO
+            year, week, _ = acquisto.data_consegna.isocalendar()
+            periodo_key = f"{year}-W{week:02d}"
+            periodo_label = f"Settimana {week}/{year}"
+        else:
+            # Mese
+            periodo_key = acquisto.data_consegna.strftime("%Y-%m")
+            periodo_label = acquisto.data_consegna.strftime("%B %Y")
+        
+        if periodo_key not in periodi:
+            periodi[periodo_key] = {
+                "label": periodo_label,
+                "acquisti": [],
+                "investimento": 0,
+                "ricavi": 0,
+                "margine": 0,
+                "count": 0
+            }
+        
+        # Calcola metriche (solo per prodotti business)
+        costo_per_prodotto = acquisto.costo_totale / len(acquisto.prodotti)  # Costo unitario
+        costo_business = costo_per_prodotto * len(prodotti_business)  # Costo solo business
+        
+        ricavi_business = sum(
+            sum(v.ricavo_netto for v in p.vendite if v.canale_vendita != "RIPARAZIONI") 
+            for p in prodotti_business if p.vendite
+        )
+        
+        periodi[periodo_key]["acquisti"].append(acquisto)
+        periodi[periodo_key]["investimento"] += costo_business
+        periodi[periodo_key]["ricavi"] += ricavi_business
+        periodi[periodo_key]["margine"] += ricavi_business - costo_business
+        periodi[periodo_key]["count"] += 1
+    
+    # Converti in lista e calcola percentuali
+    statistiche_lista = []
+    for key, data in sorted(periodi.items(), reverse=True):
+        margine_perc = (data["margine"] / data["investimento"] * 100) if data["investimento"] > 0 else 0
+        
+        statistiche_lista.append({
+            "periodo": data["label"],
+            "count": data["count"],
+            "investimento": data["investimento"],
+            "ricavi": data["ricavi"],
+            "margine": data["margine"],
+            "margine_percentuale": margine_perc,
+            "acquisti": data["acquisti"]
+        })
+    
+    return templates.TemplateResponse("statistiche.html", {
+        "request": request,
+        "statistiche": statistiche_lista,
+        "periodo_selezionato": periodo
+    })
+
+@app.get("/diagnostica", response_class=HTMLResponse)
+async def diagnostica_sincronizzazione(request: Request, db: Session = Depends(get_db)):
+    """Diagnostica completa problemi di sincronizzazione"""
+    
+    # 1. Prodotti senza seriali
+    prodotti_senza_seriali = db.query(Prodotto).filter(
+        or_(
+            Prodotto.seriale.is_(None),
+            Prodotto.seriale == "",
+            Prodotto.seriale == "???",
+            Prodotto.seriale == "N/A"
+        )
+    ).options(joinedload(Prodotto.acquisto)).all()
+    
+    # 2. Prodotti con seriali ma senza vendite
+    prodotti_con_seriali_no_vendite = db.query(Prodotto).filter(
+        Prodotto.seriale.isnot(None),
+        Prodotto.seriale != "",
+        Prodotto.seriale != "???",
+        Prodotto.seriale != "N/A",
+        ~Prodotto.vendite.any()
+    ).options(joinedload(Prodotto.acquisto)).all()
+    
+    # 3. Seriali duplicati
+    seriali_duplicati = db.query(Prodotto.seriale, func.count(Prodotto.id).label('count')).filter(
+        Prodotto.seriale.isnot(None),
+        Prodotto.seriale != "",
+        Prodotto.seriale != "???",
+        Prodotto.seriale != "N/A"
+    ).group_by(Prodotto.seriale).having(func.count(Prodotto.id) > 1).all()
+    
+    # 4. Prodotti venduti senza seriali
+    prodotti_venduti_senza_seriali = db.query(Prodotto).filter(
+        or_(
+            Prodotto.seriale.is_(None),
+            Prodotto.seriale == "",
+            Prodotto.seriale == "???",
+            Prodotto.seriale == "N/A"
+        ),
+        Prodotto.vendite.any()
+    ).options(joinedload(Prodotto.vendite)).all()
+    
+    # 5. Statistiche generali
+    total_prodotti = db.query(Prodotto).count()
+    total_vendite = db.query(Vendita).count()
+    total_acquisti = db.query(Acquisto).count()
+    
+    prodotti_venduti = db.query(Prodotto).filter(Prodotto.vendite.any()).count()
+    prodotti_in_stock = total_prodotti - prodotti_venduti
+    
+    # 6. Analisi seriali problematici
+    seriali_problematici = []
+    
+    # Seriali con caratteri strani
+    prodotti_seriali_strani = db.query(Prodotto).filter(
+        Prodotto.seriale.isnot(None),
+        or_(
+            Prodotto.seriale.like("%???%"),
+            Prodotto.seriale.like("%-"),
+            Prodotto.seriale.like("% %"),  # Con spazi
+            func.char_length(Prodotto.seriale) < 3,
+            func.char_length(Prodotto.seriale) > 50
+        )
+    ).all()
+    
+    # 7. Acquisti senza prodotti
+    acquisti_senza_prodotti = db.query(Acquisto).filter(
+        ~Acquisto.prodotti.any()
+    ).all()
+    
+    # 8. Vendite orfane (senza prodotto)
+    vendite_orfane = db.query(Vendita).filter(
+        Vendita.prodotto_id.is_(None)
+    ).all()
+    
+    # 9. Pattern seriali comuni
+    pattern_seriali = db.query(
+        func.substring(Prodotto.seriale, 1, 3).label('prefisso'),
+        func.count(Prodotto.id).label('count')
+    ).filter(
+        Prodotto.seriale.isnot(None),
+        func.char_length(Prodotto.seriale) >= 3
+    ).group_by(func.substring(Prodotto.seriale, 1, 3)).order_by(func.count(Prodotto.id).desc()).limit(20).all()
+    
+    diagnostica_data = {
+        "statistiche_generali": {
+            "total_prodotti": total_prodotti,
+            "total_vendite": total_vendite,
+            "total_acquisti": total_acquisti,
+            "prodotti_venduti": prodotti_venduti,
+            "prodotti_in_stock": prodotti_in_stock
+        },
+        "prodotti_senza_seriali": prodotti_senza_seriali,
+        "prodotti_con_seriali_no_vendite": prodotti_con_seriali_no_vendite,
+        "seriali_duplicati": seriali_duplicati,
+        "prodotti_venduti_senza_seriali": prodotti_venduti_senza_seriali,
+        "seriali_problematici": prodotti_seriali_strani,
+        "acquisti_senza_prodotti": acquisti_senza_prodotti,
+        "vendite_orfane": vendite_orfane,
+        "pattern_seriali": pattern_seriali,
+        "problemi_count": {
+            "senza_seriali": len(prodotti_senza_seriali),
+            "con_seriali_no_vendite": len(prodotti_con_seriali_no_vendite),
+            "seriali_duplicati": len(seriali_duplicati),
+            "seriali_strani": len(prodotti_seriali_strani),
+            "acquisti_vuoti": len(acquisti_senza_prodotti),
+            "vendite_orfane": len(vendite_orfane)
+        }
+    }
+    
+    return templates.TemplateResponse("diagnostica.html", {
+        "request": request,
+        "diagnostica": diagnostica_data
+    })
+
 @app.get("/health")
 async def health_check():
     """Health check per Railway"""
