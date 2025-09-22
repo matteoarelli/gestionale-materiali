@@ -89,11 +89,29 @@
                                     </button>
                                 </div>
                                 
+                                <!-- NUOVO: Checkbox fotorip -->
+                                <div class="row">
+                                    <div class="col-12 mb-3">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="fotorip_0" 
+                                                   name="prodotti[0][is_fotorip]" onchange="toggleFotoripMode(0)">
+                                            <label class="form-check-label" for="fotorip_0">
+                                                <i class="bi bi-tools"></i> <strong>Prodotto per riparazioni</strong>
+                                                <small class="text-muted d-block">Il prodotto verrà automaticamente "venduto" per uso interno nelle riparazioni</small>
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
+                                
                                 <div class="row">
                                     <div class="col-md-4 mb-3">
                                         <label class="form-label">Seriale</label>
-                                        <input type="text" class="form-control" name="prodotti[0][seriale]" placeholder="Inserire quando arriva">
-                                        <small class="form-text text-muted">Opzionale - può essere aggiunto dopo</small>
+                                        <input type="text" class="form-control seriale-input" name="prodotti[0][seriale]" 
+                                               placeholder="Inserire quando arriva" data-index="0">
+                                        <small class="form-text text-muted normal-mode">Opzionale - può essere aggiunto dopo</small>
+                                        <small class="form-text text-info fotorip-mode" style="display: none;">
+                                            Seriale automatico per fotorip - lasciare vuoto
+                                        </small>
                                     </div>
                                     <div class="col-md-8 mb-3">
                                         <label class="form-label">Descrizione Prodotto *</label>
@@ -142,6 +160,30 @@ document.getElementById('id_acquisto_univoco').addEventListener('focus', functio
     }
 });
 
+function toggleFotoripMode(index) {
+    const checkbox = document.getElementById(`fotorip_${index}`);
+    const serialeInput = document.querySelector(`[name="prodotti[${index}][seriale]"]`);
+    const normalHelp = checkbox.closest('.prodotto-item').querySelector('.normal-mode');
+    const fotoripHelp = checkbox.closest('.prodotto-item').querySelector('.fotorip-mode');
+    
+    if (checkbox.checked) {
+        // Modalità fotorip
+        serialeInput.placeholder = "Sarà generato automaticamente";
+        serialeInput.value = "";
+        serialeInput.readOnly = true;
+        serialeInput.classList.add('bg-light');
+        normalHelp.style.display = 'none';
+        fotoripHelp.style.display = 'block';
+    } else {
+        // Modalità normale
+        serialeInput.placeholder = "Inserire quando arriva";
+        serialeInput.readOnly = false;
+        serialeInput.classList.remove('bg-light');
+        normalHelp.style.display = 'block';
+        fotoripHelp.style.display = 'none';
+    }
+}
+
 function aggiungiProdotto() {
     const container = document.getElementById('prodottiContainer');
     const prodottoHtml = `
@@ -153,11 +195,29 @@ function aggiungiProdotto() {
                 </button>
             </div>
             
+            <!-- Checkbox fotorip -->
+            <div class="row">
+                <div class="col-12 mb-3">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="fotorip_${prodottoIndex}" 
+                               name="prodotti[${prodottoIndex}][is_fotorip]" onchange="toggleFotoripMode(${prodottoIndex})">
+                        <label class="form-check-label" for="fotorip_${prodottoIndex}">
+                            <i class="bi bi-tools"></i> <strong>Prodotto per riparazioni</strong>
+                            <small class="text-muted d-block">Il prodotto verrà automaticamente "venduto" per uso interno nelle riparazioni</small>
+                        </label>
+                    </div>
+                </div>
+            </div>
+            
             <div class="row">
                 <div class="col-md-4 mb-3">
                     <label class="form-label">Seriale</label>
-                    <input type="text" class="form-control" name="prodotti[${prodottoIndex}][seriale]" placeholder="Inserire quando arriva">
-                    <small class="form-text text-muted">Opzionale</small>
+                    <input type="text" class="form-control seriale-input" name="prodotti[${prodottoIndex}][seriale]" 
+                           placeholder="Inserire quando arriva" data-index="${prodottoIndex}">
+                    <small class="form-text text-muted normal-mode">Opzionale</small>
+                    <small class="form-text text-info fotorip-mode" style="display: none;">
+                        Seriale automatico per fotorip - lasciare vuoto
+                    </small>
                 </div>
                 <div class="col-md-8 mb-3">
                     <label class="form-label">Descrizione Prodotto *</label>
@@ -203,6 +263,25 @@ function rinumeraProdotti() {
         prodotto.querySelector('h6').textContent = `Prodotto ${index + 1}`;
     });
 }
+
+// Validazione form prima del submit
+document.getElementById('acquistoForm').addEventListener('submit', function(e) {
+    // Controlla che ci sia almeno un prodotto con descrizione
+    const descrizioni = document.querySelectorAll('[name*="[descrizione]"]');
+    let prodottiValidi = 0;
+    
+    descrizioni.forEach(desc => {
+        if (desc.value.trim()) {
+            prodottiValidi++;
+        }
+    });
+    
+    if (prodottiValidi === 0) {
+        e.preventDefault();
+        alert('Inserisci almeno un prodotto con descrizione.');
+        return;
+    }
+});
 </script>
 {% endblock %}
 {% endblock %}

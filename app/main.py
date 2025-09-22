@@ -465,12 +465,27 @@ async def lista_acquisti(request: Request, db: Session = Depends(get_db)):
     elif filtro_stato == "problematici":
         query = query.filter(
             or_(
-                Acquisto.prodotti.any(Prodotto.seriale.is_(None)),
+                # Prodotti senza seriali MA solo se non sono fotorip (non hanno vendite RIPARAZIONI)
+                and_(
+                    Acquisto.prodotti.any(
+                        and_(
+                            Prodotto.seriale.is_(None),
+                            ~Prodotto.vendite.any(Vendita.canale_vendita == "RIPARAZIONI")
+                        )
+                    )
+                ),
+                # Acquisti non arrivati
                 Acquisto.data_consegna.is_(None),
+                # Prodotti in stock da più di 30 giorni (escludendo fotorip)
                 and_(
                     Acquisto.data_consegna.isnot(None),
                     Acquisto.data_consegna < (date.today() - timedelta(days=30)),
-                    Acquisto.prodotti.any(~Prodotto.vendite.any())
+                    Acquisto.prodotti.any(
+                        and_(
+                            ~Prodotto.vendite.any(),
+                            ~Prodotto.vendite.any(Vendita.canale_vendita == "RIPARAZIONI")
+                        )
+                    )
                 )
             )
         )
@@ -863,7 +878,7 @@ async def crea_nuovo_acquisto(request: Request, db: Session = Depends(get_db)):
         # Parsea i prodotti dal formato del template: prodotti[0][seriale], prodotti[0][descrizione], etc.
         prodotti_data = {}
         for key, value in form_data.items():
-            if key.startswith('prodotti[') and value.strip():
+            if key.startswith('prodotti['):
                 # Estrai index e campo da prodotti[0][seriale] -> index=0, campo=seriale
                 import re
                 match = re.match(r'prodotti\[(\d+)\]\[(\w+)\]', key)
@@ -873,18 +888,51 @@ async def crea_nuovo_acquisto(request: Request, db: Session = Depends(get_db)):
                     
                     if index not in prodotti_data:
                         prodotti_data[index] = {}
-                    prodotti_data[index][campo] = value.strip()
-        
+                    
+                    # Gestisci il checkbox is_fotorip
+                    if campo == 'is_fotorip':
+                        prodotti_data[index][campo] = True  # Se presente nel form è checked
+                    else:
+                        prodotti_data[index][campo] = value.strip() if value else None
+
         # Crea i prodotti
         for index, dati_prodotto in prodotti_data.items():
             if dati_prodotto.get("descrizione"):  # Solo se ha descrizione (campo obbligatorio)
+                is_fotorip = dati_prodotto.get("is_fotorip", False)
+                
+                # Per fotorip, genera seriale automatico se non fornito
+                seriale = dati_prodotto.get("seriale")
+                if is_fotorip and not seriale:
+                    # Genera seriale automatico per fotorip
+                    import time
+                    seriale = f"FOTORIP_{int(time.time())}_{index}"
+                
                 prodotto = Prodotto(
                     acquisto_id=nuovo_acquisto.id,
-                    seriale=dati_prodotto.get("seriale") if dati_prodotto.get("seriale") else None,
+                    seriale=seriale,
                     prodotto_descrizione=dati_prodotto.get("descrizione", ""),
                     note_prodotto=dati_prodotto.get("note")
                 )
                 db.add(prodotto)
+                
+                # Se è fotorip, crea subito una vendita fittizia
+                if is_fotorip:
+                    db.flush()  # Per ottenere l'ID del prodotto
+                    
+                    costo_totale_acquisto = nuovo_acquisto.costo_acquisto + (nuovo_acquisto.costi_accessori or 0)
+                    
+                    vendita_fotorip = Vendita(
+                        prodotto_id=prodotto.id,
+                        data_vendita=nuovo_acquisto.data_consegna if nuovo_acquisto.data_consegna else date.today(),
+                        canale_vendita="RIPARAZIONI",
+                        prezzo_vendita=costo_totale_acquisto,
+                        commissioni=0.0,
+                        synced_from_invoicex=False,
+                        invoicex_id=f"FOTORIP_{prodotto.id}",
+                        note_vendita="Prodotto utilizzato per riparazioni - margine neutro - creato manualmente"
+                    )
+                    
+                    db.add(vendita_fotorip)
         
         db.commit()
         
