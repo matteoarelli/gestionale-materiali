@@ -991,6 +991,7 @@ async def modifica_acquisto(acquisto_id: int, request: Request, db: Session = De
         
         # Aggiorna prodotti esistenti e crea nuovi
         prodotti_esistenti = {p.id: p for p in acquisto.prodotti}
+        prodotti_nel_form = set()
         
         for index, dati_prodotto in prodotti_data.items():
             prodotto_id = dati_prodotto.get("id")
@@ -998,6 +999,8 @@ async def modifica_acquisto(acquisto_id: int, request: Request, db: Session = De
             if prodotto_id and int(prodotto_id) in prodotti_esistenti:
                 # Aggiorna prodotto esistente
                 prodotto = prodotti_esistenti[int(prodotto_id)]
+                prodotti_nel_form.add(int(prodotto_id))
+                
                 # Non aggiornare prodotti già venduti
                 if not prodotto.vendite:
                     prodotto.seriale = dati_prodotto.get("seriale")
@@ -1012,6 +1015,17 @@ async def modifica_acquisto(acquisto_id: int, request: Request, db: Session = De
                     note_prodotto=dati_prodotto.get("note")
                 )
                 db.add(nuovo_prodotto)
+        
+        # ELIMINA prodotti che non sono più nel form (solo se non venduti)
+        for prodotto_id, prodotto in prodotti_esistenti.items():
+            if prodotto_id not in prodotti_nel_form:
+                # Elimina solo se non ha vendite
+                if not prodotto.vendite:
+                    db.delete(prodotto)
+                else:
+                    # Log warning - prodotto venduto non può essere eliminato
+                    print(f"WARNING: Tentativo di eliminare prodotto venduto {prodotto_id}")
+        
         
         db.commit()
         
