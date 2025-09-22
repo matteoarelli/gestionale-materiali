@@ -20,20 +20,28 @@
                         </div>
                         <div class="card-body">
                             <div class="row">
-                                <div class="col-md-4 mb-3">
+                                <div class="col-md-3 mb-3">
                                     <label for="id_acquisto_univoco" class="form-label">ID Acquisto *</label>
                                     <input type="text" class="form-control" id="id_acquisto_univoco" 
                                            name="id_acquisto_univoco" value="{{ acquisto.id_acquisto_univoco }}" required>
                                 </div>
-                                <div class="col-md-4 mb-3">
+                                <div class="col-md-3 mb-3">
                                     <label for="dove_acquistato" class="form-label">Dove Acquistato *</label>
                                     <input type="text" class="form-control" id="dove_acquistato" 
                                            name="dove_acquistato" value="{{ acquisto.dove_acquistato }}" required>
                                 </div>
-                                <div class="col-md-4 mb-3">
+                                <div class="col-md-3 mb-3">
                                     <label for="venditore" class="form-label">Venditore *</label>
                                     <input type="text" class="form-control" id="venditore" 
                                            name="venditore" value="{{ acquisto.venditore }}" required>
+                                </div>
+                                <div class="col-md-3 mb-3">
+                                    <label for="acquirente" class="form-label">Acquirente *</label>
+                                    <select class="form-select" id="acquirente" name="acquirente" required>
+                                        <option value="Alessio" {% if acquisto.acquirente == 'Alessio' %}selected{% endif %}>Alessio</option>
+                                        <option value="Matteo" {% if acquisto.acquirente == 'Matteo' %}selected{% endif %}>Matteo</option>
+                                        <option value="Altri" {% if acquisto.acquirente == 'Altri' %}selected{% endif %}>Altri</option>
+                                    </select>
                                 </div>
                             </div>
                             
@@ -96,9 +104,9 @@
                                 
                                 <div class="row">
                                     <div class="col-md-4 mb-3">
-                                        <label class="form-label">Seriale *</label>
+                                        <label class="form-label">Seriale</label>
                                         <input type="text" class="form-control" name="prodotti[{{ loop.index0 }}][seriale]" 
-                                               value="{{ prodotto.seriale }}" required {{ 'readonly' if prodotto.venduto else '' }}>
+                                               value="{{ prodotto.seriale or '' }}" {{ 'readonly' if prodotto.venduto else '' }}>
                                     </div>
                                     <div class="col-md-8 mb-3">
                                         <label class="form-label">Descrizione Prodotto *</label>
@@ -149,8 +157,8 @@ function aggiungiProdotto() {
             
             <div class="row">
                 <div class="col-md-4 mb-3">
-                    <label class="form-label">Seriale *</label>
-                    <input type="text" class="form-control" name="prodotti[${prodottoIndex}][seriale]" required>
+                    <label class="form-label">Seriale</label>
+                    <input type="text" class="form-control" name="prodotti[${prodottoIndex}][seriale]">
                 </div>
                 <div class="col-md-8 mb-3">
                     <label class="form-label">Descrizione Prodotto *</label>

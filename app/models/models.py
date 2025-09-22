@@ -17,6 +17,7 @@ class Acquisto(Base):
     data_pagamento = Column(Date, nullable=True)
     data_consegna = Column(Date, nullable=True)
     note = Column(Text, nullable=True)
+    acquirente = Column(String(100), default="Alessio")  # NUOVO CAMPO
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
