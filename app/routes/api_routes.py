@@ -36,7 +36,7 @@ async def ricevi_acquisti_da_script(request: Request, db: Session = Depends(get_
         
         for acquisto_info in acquisti_data:
             try:
-                # Verifica se acquisto esiste già
+                # Verifica se acquisto esiste già 
                 id_univoco = acquisto_info.get("id_acquisto_univoco")
                 acquisto_esistente = db.query(Acquisto).filter(
                     Acquisto.id_acquisto_univoco == id_univoco

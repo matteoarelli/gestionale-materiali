@@ -13,8 +13,7 @@ import re
 from app.database import get_db, engine, Base
 from app.models.models import Acquisto, Vendita, Prodotto
 from app.routers import acquisti
-from app.routes.api_routes import api_router
-from app.routes.debug_routes import debug_router
+from app.routes.api_routes import api_router, debug_router
 
 # Crea tutte le tabelle
 Base.metadata.create_all(bind=engine)
@@ -197,7 +196,7 @@ async def salva_seriali_multipli(request: Request, db: Session = Depends(get_db)
             continue
             
         try:
-            # Verifica che il seriale non esista già
+            # Verifica che il seriale non esista già 
             if db.query(Prodotto).filter(Prodotto.seriale == nuovo_seriale).first():
                 errori.append(f"Seriale {nuovo_seriale} già esistente nel database")
                 seriali_duplicati += 1
@@ -310,7 +309,7 @@ async def problemi(request: Request, db: Session = Depends(get_db)):
                 'margine_percentuale': margine_percentuale
             })
     
-    # Ordina per gravità
+    # Ordina per gravità 
     vendite_lente.sort(key=lambda x: x['giorni_stock'], reverse=True)
     margini_critici.sort(key=lambda x: x['margine_percentuale'])
     
