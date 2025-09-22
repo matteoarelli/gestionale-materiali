@@ -1240,7 +1240,7 @@ async def salva_seriali_acquisto(acquisto_id: int, request: Request, db: Session
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Errore nel salvataggio: {str(e)}")
 
-@app.post("/admin/add-acquirente-field")
+@app.get("/admin/add-acquirente-field")
 async def add_acquirente_field(db: Session = Depends(get_db)):
     """Aggiunge il campo acquirente e imposta tutti gli esistenti come 'Alessio'"""
     try:
