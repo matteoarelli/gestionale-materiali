@@ -430,15 +430,24 @@ async def lista_acquisti(request: Request, db: Session = Depends(get_db)):
     # Conta totali per statistiche
     acquisti_totali = query.count()
     
-    # NUOVO: Filtro per acquirente
+    # NUOVO: Filtro per acquirente (solo se la colonna esiste)
+    acquirenti_lista = []
     if filtro_acquirente and filtro_acquirente != "tutti":
-        query = query.filter(Acquisto.acquirente == filtro_acquirente)
+        try:
+            query = query.filter(Acquisto.acquirente == filtro_acquirente)
+        except AttributeError:
+            # Colonna acquirente non esiste ancora
+            filtro_acquirente = "tutti"
     
-    # Ottieni lista acquirenti per dropdown
-    acquirenti_disponibili = db.query(Acquisto.acquirente).distinct().filter(
-        Acquisto.acquirente.isnot(None)
-    ).all()
-    acquirenti_lista = sorted([a[0] for a in acquirenti_disponibili])
+    # Ottieni lista acquirenti per dropdown (solo se la colonna esiste)
+    try:
+        acquirenti_disponibili = db.query(Acquisto.acquirente).distinct().filter(
+            Acquisto.acquirente.isnot(None)
+        ).all()
+        acquirenti_lista = sorted([a[0] for a in acquirenti_disponibili if a[0]])
+    except AttributeError:
+        # Colonna acquirente non esiste ancora - usa lista default
+        acquirenti_lista = ["Alessio"]
     
     # Applica filtri di ricerca
     if cerca:
