@@ -831,6 +831,74 @@ async def diagnostica_sincronizzazione(request: Request, db: Session = Depends(g
         "diagnostica": diagnostica_data
     })
 
+@app.get("/acquisti/nuovo", response_class=HTMLResponse)
+async def nuovo_acquisto_form(request: Request):
+    """Form per creare nuovo acquisto"""
+    return templates.TemplateResponse("nuovo_acquisto.html", {
+        "request": request
+    })
+
+@app.post("/acquisti/nuovo")
+async def crea_nuovo_acquisto(request: Request, db: Session = Depends(get_db)):
+    """Crea nuovo acquisto"""
+    form_data = await request.form()
+    
+    try:
+        # Crea nuovo acquisto
+        nuovo_acquisto = Acquisto(
+            id_acquisto_univoco=form_data.get("id_acquisto_univoco"),
+            dove_acquistato=form_data.get("dove_acquistato", ""),
+            venditore=form_data.get("venditore", ""),
+            costo_acquisto=float(form_data.get("costo_acquisto", 0)),
+            costi_accessori=float(form_data.get("costi_accessori", 0)),
+            data_pagamento=datetime.strptime(form_data.get("data_pagamento"), "%Y-%m-%d").date() if form_data.get("data_pagamento") else None,
+            data_consegna=datetime.strptime(form_data.get("data_consegna"), "%Y-%m-%d").date() if form_data.get("data_consegna") else None,
+            note=form_data.get("note"),
+            created_at=datetime.now()
+        )
+        
+        db.add(nuovo_acquisto)
+        db.flush()
+        
+        # Parsea i prodotti dal formato del template: prodotti[0][seriale], prodotti[0][descrizione], etc.
+        prodotti_data = {}
+        for key, value in form_data.items():
+            if key.startswith('prodotti[') and value.strip():
+                # Estrai index e campo da prodotti[0][seriale] -> index=0, campo=seriale
+                import re
+                match = re.match(r'prodotti\[(\d+)\]\[(\w+)\]', key)
+                if match:
+                    index = int(match.group(1))
+                    campo = match.group(2)
+                    
+                    if index not in prodotti_data:
+                        prodotti_data[index] = {}
+                    prodotti_data[index][campo] = value.strip()
+        
+        # Crea i prodotti
+        for index, dati_prodotto in prodotti_data.items():
+            if dati_prodotto.get("descrizione"):  # Solo se ha descrizione (campo obbligatorio)
+                prodotto = Prodotto(
+                    acquisto_id=nuovo_acquisto.id,
+                    seriale=dati_prodotto.get("seriale") if dati_prodotto.get("seriale") else None,
+                    prodotto_descrizione=dati_prodotto.get("descrizione", ""),
+                    note_prodotto=dati_prodotto.get("note")
+                )
+                db.add(prodotto)
+        
+        db.commit()
+        
+        return RedirectResponse(url="/acquisti?nuovo=success", status_code=303)
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Errore nella creazione: {str(e)}")
+
+@app.get("/favicon.ico")
+async def favicon():
+    """Favicon placeholder"""
+    return {"message": "No favicon"}
+
 @app.get("/health")
 async def health_check():
     """Health check per Railway"""
