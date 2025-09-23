@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Acquisti - Gestionale Materiali{% endblock %}
+{% block title %}Acquisti Non Arrivati - Gestionale Materiali{% endblock %}
 
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
@@ -47,9 +47,9 @@
     <div class="col-md-2">
         <div class="card text-center border-dark">
             <div class="card-body">
-                <h6 class="text-muted">Con Problemi</h6>
-                <h4 class="text-dark">{{ acquisti_con_problemi|length }}</h4>
-                <small class="text-muted">Segnalati</small>
+                <h6 class="text-muted">Molto in Ritardo</h6>
+                <h4 class="text-dark">{{ acquisti_ritardo|selectattr("giorni_attesa", "gt", 21)|list|length }}</h4>
+                <small class="text-muted">>21 giorni</small>
             </div>
         </div>
     </div>
@@ -81,9 +81,7 @@
                     <option value="tutti" {% if filtro_stato == 'tutti' %}selected{% endif %}>Tutti non arrivati</option>
                     <option value="normali" {% if filtro_stato == 'normali' %}selected{% endif %}>Attesa Normale (≤7gg)</option>
                     <option value="ritardo" {% if filtro_stato == 'ritardo' %}selected{% endif %}>In Ritardo (>7gg)</option>
-                    <option value="critico" {% if filtro_stato == 'critico' %}selected{% endif %}>Ritardo Critico (>14gg)</option>
-                    <option value="con_problemi" {% if filtro_stato == 'con_problemi' %}selected{% endif %}>Con Problemi Segnalati</option>
-                    <option value="senza_problemi" {% if filtro_stato == 'senza_problemi' %}selected{% endif %}>Senza Problemi</option>
+                    <option value="critico" {% if filtro_stato == 'critico' %}selected{% endif %}>Ritardo Critico (>21gg)</option>
                 </select>
             </div>
             <div class="col-md-3">
@@ -139,13 +137,12 @@
                         <th>Costo</th>
                         <th>Date</th>
                         <th>Attesa</th>
-                        <th>Problemi</th>
                         <th>Azioni</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for acquisto in acquisti_filtered %}
-                    <tr class="{% if acquisto.problema_segnalato %}table-danger{% elif acquisto.giorni_attesa > 14 %}table-warning{% endif %}" 
+                    <tr class="{% if acquisto.giorni_attesa and acquisto.giorni_attesa > 14 %}table-warning{% elif acquisto.giorni_attesa and acquisto.giorni_attesa > 21 %}table-danger{% endif %}" 
                         data-acquisto-id="{{ acquisto.id }}">
                         
                         <td>
@@ -154,9 +151,9 @@
                         
                         <td>
                             <div class="d-flex align-items-center">
-                                {% if acquisto.problema_segnalato %}
-                                    <i class="bi bi-exclamation-triangle-fill text-danger me-2" title="Problema segnalato"></i>
-                                {% elif acquisto.giorni_attesa > 14 %}
+                                {% if acquisto.giorni_attesa and acquisto.giorni_attesa > 21 %}
+                                    <i class="bi bi-exclamation-triangle-fill text-danger me-2" title="Ritardo critico"></i>
+                                {% elif acquisto.giorni_attesa and acquisto.giorni_attesa > 14 %}
                                     <i class="bi bi-clock-fill text-warning me-2" title="Ritardo significativo"></i>
                                 {% endif %}
                                 
@@ -229,7 +226,7 @@
                         <td>
                             {% if acquisto.giorni_attesa is not none %}
                                 <div class="text-center">
-                                    <span class="badge {% if acquisto.giorni_attesa > 14 %}bg-danger{% elif acquisto.giorni_attesa > 7 %}bg-warning{% else %}bg-secondary{% endif %} fs-6">
+                                    <span class="badge {% if acquisto.giorni_attesa > 21 %}bg-danger{% elif acquisto.giorni_attesa > 14 %}bg-warning{% elif acquisto.giorni_attesa > 7 %}bg-warning{% else %}bg-secondary{% endif %} fs-6">
                                         {{ acquisto.giorni_attesa }}
                                     </span>
                                     <br>
@@ -247,63 +244,18 @@
                         </td>
                         
                         <td>
-                            {% if acquisto.problema_tipo %}
-                                <div class="mb-1">
-                                    <span class="badge bg-danger">{{ acquisto.problema_tipo|replace('_', ' ')|title }}</span>
-                                </div>
-                                {% if acquisto.problema_descrizione %}
-                                    <small class="text-muted" title="{{ acquisto.problema_descrizione }}">
-                                        {{ acquisto.problema_descrizione[:30] }}
-                                        {% if acquisto.problema_descrizione|length > 30 %}...{% endif %}
-                                    </small>
-                                {% endif %}
-                                {% if acquisto.problema_data_segnalazione %}
-                                    <div class="small text-muted">
-                                        Segnalato: {{ acquisto.problema_data_segnalazione.strftime('%d/%m') }}
-                                    </div>
-                                {% endif %}
-                            {% else %}
-                                <span class="text-success">
-                                    <i class="bi bi-check-circle"></i> Nessun problema
-                                </span>
-                            {% endif %}
-                        </td>
-                        
-                        <td>
-                            <div class="btn-group-vertical" role="group">
-                                <!-- Prima riga azioni -->
-                                <div class="btn-group mb-1" role="group">
-                                    <!-- Segna come arrivato -->
-                                    <button type="button" class="btn btn-sm btn-success" 
-                                            onclick="segnaArrivato({{ acquisto.id }})" title="Segna come arrivato oggi">
-                                        <i class="bi bi-truck"></i>
-                                    </button>
-                                    
-                                    <!-- Modifica -->
-                                    <a href="/acquisti/{{ acquisto.id }}/modifica" 
-                                       class="btn btn-sm btn-outline-primary" title="Modifica acquisto">
-                                        <i class="bi bi-pencil"></i>
-                                    </a>
-                                </div>
+                            <div class="btn-group" role="group">
+                                <!-- Segna come arrivato -->
+                                <button type="button" class="btn btn-sm btn-success" 
+                                        onclick="segnaArrivato({{ acquisto.id }})" title="Segna come arrivato oggi">
+                                    <i class="bi bi-truck"></i> Arrivato
+                                </button>
                                 
-                                <!-- Seconda riga - Gestione problemi -->
-                                <div class="btn-group" role="group">
-                                    {% if not acquisto.problema_tipo %}
-                                        <!-- Segnala problema -->
-                                        <button type="button" class="btn btn-sm btn-outline-danger" 
-                                                onclick="segnalaProblema({{ acquisto.id }}, '{{ acquisto.id_acquisto_univoco }}')" 
-                                                title="Segnala problema">
-                                            <i class="bi bi-exclamation-triangle"></i> Problema
-                                        </button>
-                                    {% else %}
-                                        <!-- Risolvi problema -->
-                                        <button type="button" class="btn btn-sm btn-danger" 
-                                                onclick="risolviProblema({{ acquisto.id }})" 
-                                                title="Risolvi problema">
-                                            <i class="bi bi-check-square"></i> Risolvi
-                                        </button>
-                                    {% endif %}
-                                </div>
+                                <!-- Modifica -->
+                                <a href="/acquisti/{{ acquisto.id }}/modifica" 
+                                   class="btn btn-sm btn-outline-primary" title="Modifica acquisto">
+                                    <i class="bi bi-pencil"></i>
+                                </a>
                             </div>
                         </td>
                     </tr>
@@ -338,25 +290,19 @@
     </div>
     <div class="card-body">
         <div class="row">
-            <div class="col-md-3">
+            <div class="col-md-4">
                 <h6>Consegne</h6>
                 <button onclick="segnaSelezionatiArrivati()" class="btn btn-outline-success btn-sm" disabled id="btnSegnaArrivati">
                     <i class="bi bi-truck"></i> Segna Selezionati come Arrivati
                 </button>
             </div>
-            <div class="col-md-3">
-                <h6>Problemi</h6>
-                <button onclick="segnalaProblemaMultiplo()" class="btn btn-outline-danger btn-sm" disabled id="btnSegnalaProblemi">
-                    <i class="bi bi-exclamation-triangle"></i> Segnala Problema su Selezionati
-                </button>
-            </div>
-            <div class="col-md-3">
+            <div class="col-md-4">
                 <h6>Esportazione</h6>
                 <button onclick="esportaFiltrati()" class="btn btn-outline-info btn-sm">
                     <i class="bi bi-download"></i> Esporta Lista Filtrata
                 </button>
             </div>
-            <div class="col-md-3">
+            <div class="col-md-4">
                 <h6>Navigazione</h6>
                 <a href="/da-gestire" class="btn btn-outline-primary btn-sm">
                     <i class="bi bi-list-task"></i> Vai a Da Gestire
@@ -366,60 +312,6 @@
     </div>
 </div>
 {% endif %}
-
-<!-- Modal per segnalazione problema -->
-<div class="modal fade" id="modalSegnalaProblema" tabindex="-1" aria-labelledby="modalSegnalaProblemaLabel" aria-hidden="true">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header bg-danger text-white">
-                <h5 class="modal-title" id="modalSegnalaProblemaLabel">
-                    <i class="bi bi-exclamation-triangle"></i> Segnala Problema
-                </h5>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <form id="formSegnalaProblema">
-                    <div class="mb-3">
-                        <label class="form-label">Acquisto:</label>
-                        <div class="form-control-plaintext bg-light p-2 rounded">
-                            <strong id="acquistoProblema">-</strong>
-                        </div>
-                    </div>
-                    
-                    <div class="mb-3">
-                        <label for="problema_tipo" class="form-label">Tipo Problema *</label>
-                        <select id="problema_tipo" name="problema_tipo" class="form-select" required>
-                            <option value="">-- Seleziona tipo problema --</option>
-                            <option value="pacco_perso">Pacco Perso/Non Consegnato</option>
-                            <option value="prodotti_non_conformi">Prodotti Non Conformi</option>
-                            <option value="prodotti_danneggiati">Prodotti Danneggiati</option>
-                            <option value="ritardo_consegna">Ritardo Consegna Eccessivo</option>
-                            <option value="problema_venditore">Problema con Venditore</option>
-                            <option value="altro">Altro</option>
-                        </select>
-                    </div>
-                    
-                    <div class="mb-3">
-                        <label for="problema_descrizione" class="form-label">Descrizione Problema</label>
-                        <textarea id="problema_descrizione" name="problema_descrizione" 
-                                  class="form-control" rows="3" 
-                                  placeholder="Descrivi il problema in dettaglio (opzionale ma consigliato)"></textarea>
-                    </div>
-                    
-                    <input type="hidden" id="acquisto_id_problema" name="acquisto_id">
-                </form>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
-                    <i class="bi bi-x-circle"></i> Annulla
-                </button>
-                <button type="button" class="btn btn-danger" onclick="salvaSegnalazioneProblema()">
-                    <i class="bi bi-exclamation-triangle"></i> Segnala Problema
-                </button>
-            </div>
-        </div>
-    </div>
-</div>
 
 <style>
 .table tbody tr.table-danger {
@@ -483,13 +375,10 @@ document.querySelectorAll('.acquisto-checkbox').forEach(cb => {
 function aggiornaButtoniAzioniMultiple() {
     const hasSelection = acquisti_selezionati.size > 0;
     document.getElementById('btnSegnaArrivati').disabled = !hasSelection;
-    document.getElementById('btnSegnalaProblemi').disabled = !hasSelection;
     
     // Aggiorna testi con count
     document.getElementById('btnSegnaArrivati').innerHTML = 
         `<i class="bi bi-truck"></i> Segna ${acquisti_selezionati.size} come Arrivati`;
-    document.getElementById('btnSegnalaProblemi').innerHTML = 
-        `<i class="bi bi-exclamation-triangle"></i> Segnala Problema su ${acquisti_selezionati.size}`;
 }
 
 // Funzione per segnare singolo acquisto come arrivato
@@ -565,90 +454,6 @@ function segnaMultipliArrivati() {
     }
 }
 
-// Gestione segnalazione problemi
-function segnalaProblema(acquistoId, acquistoNome) {
-    document.getElementById('acquisto_id_problema').value = acquistoId;
-    document.getElementById('acquistoProblema').textContent = acquistoNome;
-    
-    // Reset form
-    document.getElementById('formSegnalaProblema').reset();
-    document.getElementById('acquisto_id_problema').value = acquistoId;
-    
-    const modal = new bootstrap.Modal(document.getElementById('modalSegnalaProblema'));
-    modal.show();
-}
-
-function salvaSegnalazioneProblema() {
-    const form = document.getElementById('formSegnalaProblema');
-    
-    if (!form.checkValidity()) {
-        form.reportValidity();
-        return;
-    }
-    
-    const formData = {
-        acquisto_id: document.getElementById('acquisto_id_problema').value,
-        problema_tipo: document.getElementById('problema_tipo').value,
-        problema_descrizione: document.getElementById('problema_descrizione').value
-    };
-    
-    fetch('/acquisti/segnala-problema', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(formData)
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            const modal = bootstrap.Modal.getInstance(document.getElementById('modalSegnalaProblema'));
-            modal.hide();
-            
-            showSuccessAlert(data.message);
-            setTimeout(() => location.reload(), 1500);
-        } else {
-            showErrorAlert(data.error);
-        }
-    })
-    .catch(error => {
-        console.error('Errore:', error);
-        showErrorAlert('Errore di connessione. Riprova.');
-    });
-}
-
-function risolviProblema(acquistoId) {
-    if (confirm('Contrassegnare questo problema come risolto? Il problema verrà rimosso.')) {
-        fetch('/acquisti/risolvi-problema', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ acquisto_id: acquistoId })
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                showSuccessAlert(data.message);
-                setTimeout(() => location.reload(), 1500);
-            } else {
-                showErrorAlert(data.error);
-            }
-        })
-        .catch(error => {
-            console.error('Errore:', error);
-            showErrorAlert('Errore di connessione. Riprova.');
-        });
-    }
-}
-
-function segnalaProblemaMultiplo() {
-    if (acquisti_selezionati.size === 0) return;
-    
-    // Implementazione futura per segnalazione multipla
-    alert(`Funzionalità segnalazione multipla in sviluppo per ${acquisti_selezionati.size} acquisti`);
-}
-
 function esportaFiltrati() {
     const data = Array.from(document.querySelectorAll('tbody tr')).map(row => {
         const cells = row.querySelectorAll('td');
@@ -656,8 +461,7 @@ function esportaFiltrati() {
             id: cells[1].querySelector('strong').textContent,
             venditore: cells[3].textContent.trim(),
             costo: cells[4].querySelector('strong').textContent,
-            giorni_attesa: cells[6].querySelector('.badge')?.textContent || '0',
-            problema: cells[7].querySelector('.badge')?.textContent || 'Nessuno'
+            giorni_attesa: cells[6].querySelector('.badge')?.textContent || '0'
         };
     });
     
@@ -668,40 +472,6 @@ function esportaFiltrati() {
     link.href = URL.createObjectURL(dataBlob);
     link.download = 'acquisti_non_arrivati_' + new Date().toISOString().split('T')[0] + '.json';
     link.click();
-}
-
-function showSuccessAlert(message) {
-    const alert = document.createElement('div');
-    alert.className = 'alert alert-success alert-dismissible fade show position-fixed';
-    alert.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 300px;';
-    alert.innerHTML = `
-        <i class="bi bi-check-circle"></i> ${message}
-        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-    `;
-    document.body.appendChild(alert);
-    
-    setTimeout(() => {
-        if (alert.parentNode) {
-            alert.parentNode.removeChild(alert);
-        }
-    }, 5000);
-}
-
-function showErrorAlert(message) {
-    const alert = document.createElement('div');
-    alert.className = 'alert alert-danger alert-dismissible fade show position-fixed';
-    alert.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 300px;';
-    alert.innerHTML = `
-        <i class="bi bi-exclamation-triangle"></i> ${message}
-        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-    `;
-    document.body.appendChild(alert);
-    
-    setTimeout(() => {
-        if (alert.parentNode) {
-            alert.parentNode.removeChild(alert);
-        }
-    }, 8000);
 }
 </script>
 {% endblock %}
