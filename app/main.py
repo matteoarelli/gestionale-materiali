@@ -1301,7 +1301,180 @@ async def add_acquirente_field(db: Session = Depends(get_db)):
     except Exception as e:
         db.rollback()
         return {"success": False, "error": str(e)}
+# Aggiungi questa route in main.py dopo le altre routes degli acquisti
 
+@app.get("/acquisti-non-arrivati", response_class=HTMLResponse)
+async def acquisti_non_arrivati(request: Request, db: Session = Depends(get_db)):
+    """Pagina dedicata agli acquisti non ancora arrivati"""
+    
+    # Parametri di filtro dalla query string
+    filtro_stato = request.query_params.get("filtro_stato", "tutti")
+    filtro_acquirente = request.query_params.get("filtro_acquirente", "tutti")
+    ordinamento = request.query_params.get("ordinamento", "attesa_desc")
+    cerca = request.query_params.get("cerca", "")
+    
+    # Query base per acquisti non arrivati
+    query = db.query(Acquisto).filter(
+        Acquisto.data_consegna.is_(None)
+    ).options(
+        joinedload(Acquisto.prodotti).joinedload(Prodotto.vendite)
+    )
+    
+    # Filtro per acquirente
+    acquirenti_disponibili = []
+    if filtro_acquirente and filtro_acquirente != "tutti":
+        try:
+            query = query.filter(Acquisto.acquirente == filtro_acquirente)
+        except AttributeError:
+            filtro_acquirente = "tutti"
+    
+    # Ottieni lista acquirenti per dropdown
+    try:
+        acquirenti_raw = db.query(Acquisto.acquirente).distinct().filter(
+            Acquisto.acquirente.isnot(None),
+            Acquisto.data_consegna.is_(None)  # Solo acquisti non arrivati
+        ).all()
+        acquirenti_disponibili = sorted([a[0] for a in acquirenti_raw if a[0]])
+    except AttributeError:
+        acquirenti_disponibili = ["Alessio"]
+    
+    # Filtro ricerca
+    if cerca:
+        query = query.filter(
+            or_(
+                Acquisto.id_acquisto_univoco.ilike(f"%{cerca}%"),
+                Acquisto.venditore.ilike(f"%{cerca}%"),
+                Acquisto.dove_acquistato.ilike(f"%{cerca}%")
+            )
+        )
+    
+    # Applica filtri di stato specifici per non arrivati
+    if filtro_stato == "normali":
+        # Attesa normale <= 7 giorni
+        data_limite = date.today() - timedelta(days=7)
+        query = query.filter(
+            or_(
+                Acquisto.data_pagamento.is_(None),
+                Acquisto.data_pagamento >= data_limite
+            )
+        )
+    elif filtro_stato == "ritardo":
+        # In ritardo > 7 giorni
+        data_limite = date.today() - timedelta(days=7)
+        query = query.filter(
+            and_(
+                Acquisto.data_pagamento.isnot(None),
+                Acquisto.data_pagamento < data_limite
+            )
+        )
+    elif filtro_stato == "critico":
+        # Ritardo critico > 21 giorni
+        data_limite = date.today() - timedelta(days=21)
+        query = query.filter(
+            and_(
+                Acquisto.data_pagamento.isnot(None),
+                Acquisto.data_pagamento < data_limite
+            )
+        )
+    
+    # Applica ordinamento
+    if ordinamento == "attesa_asc":
+        query = query.order_by(
+            Acquisto.data_pagamento.asc().nulls_last(),
+            Acquisto.created_at.asc()
+        )
+    elif ordinamento == "data_desc":
+        query = query.order_by(
+            Acquisto.data_pagamento.desc().nulls_last(),
+            Acquisto.created_at.desc()
+        )
+    elif ordinamento == "data_asc":
+        query = query.order_by(
+            Acquisto.data_pagamento.asc().nulls_last(),
+            Acquisto.created_at.asc()
+        )
+    elif ordinamento == "costo_desc":
+        query = query.order_by(
+            (Acquisto.costo_acquisto + func.coalesce(Acquisto.costi_accessori, 0)).desc()
+        )
+    elif ordinamento == "problemi_desc":
+        query = query.order_by(
+            Acquisto.problema_segnalato.desc().nulls_last(),
+            Acquisto.created_at.desc()
+        )
+    else:  # attesa_desc (default)
+        query = query.order_by(
+            Acquisto.data_pagamento.asc().nulls_first(),
+            Acquisto.created_at.asc()
+        )
+    
+    # Esegui query
+    acquisti_non_arrivati = query.all()
+    
+    # Calcola statistiche
+    acquisti_normali = []
+    acquisti_ritardo = []
+    investimento_totale = 0
+    prodotti_totali = 0
+    
+    for acquisto in acquisti_non_arrivati:
+        giorni_attesa = acquisto.giorni_attesa or 0
+        investimento_totale += acquisto.costo_totale
+        prodotti_totali += acquisto.numero_prodotti
+        
+        # Classifica per ritardo
+        if giorni_attesa <= 7:
+            acquisti_normali.append(acquisto)
+        else:
+            acquisti_ritardo.append(acquisto)
+    
+    # Filtra risultati per i filtri applicati
+    acquisti_filtered = acquisti_non_arrivati
+    
+    return templates.TemplateResponse("acquisti_non_arrivati.html", {
+        "request": request,
+        "acquisti_non_arrivati": acquisti_non_arrivati,
+        "acquisti_filtered": acquisti_filtered,
+        "acquisti_normali": acquisti_normali,
+        "acquisti_ritardo": acquisti_ritardo,
+        "investimento_totale": investimento_totale,
+        "prodotti_totali": prodotti_totali,
+        "filtro_stato": filtro_stato,
+        "filtro_acquirente": filtro_acquirente,
+        "acquirenti_disponibili": acquirenti_disponibili,
+        "ordinamento": ordinamento,
+        "cerca": cerca
+    })
+
+@app.post("/acquisti-non-arrivati/segna-tutti-arrivati")
+async def segna_tutti_non_arrivati_come_arrivati(db: Session = Depends(get_db)):
+    """Segna tutti gli acquisti non arrivati come arrivati oggi"""
+    
+    try:
+        acquisti_non_arrivati = db.query(Acquisto).filter(
+            Acquisto.data_consegna.is_(None)
+        ).all()
+        
+        count = 0
+        for acquisto in acquisti_non_arrivati:
+            acquisto.data_consegna = date.today()
+            count += 1
+        
+        db.commit()
+        
+        return {
+            "success": True,
+            "message": f"Segnati {count} acquisti come arrivati oggi"
+        }
+        
+    except Exception as e:
+        db.rollback()
+        return {
+            "success": False,
+            "error": f"Errore: {str(e)}"
+        }
+
+# Route semplificata senza gestione problemi
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run("app.main:app", host="0.0.0.0", port=port, reload=True)
