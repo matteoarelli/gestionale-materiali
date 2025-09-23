@@ -175,18 +175,24 @@ async def create_sale_from_purchase(request: Request, db: Session = Depends(get_
 async def da_gestire(request: Request, db: Session = Depends(get_db)):
     """Pagina Da Gestire - elementi che richiedono attenzione"""
     
-    # Prodotti senza seriali (TUTTI, non solo quelli non venduti)
+    # CORREZIONE: Filtro prodotti senza seriali più completo
     prodotti_senza_seriali = db.query(Prodotto).filter(
         or_(
             Prodotto.seriale.is_(None),
             Prodotto.seriale == "",
             Prodotto.seriale == "???",
             Prodotto.seriale == "N/A"
-        )
+        ),
+        ~Prodotto.vendite.any()  # Solo prodotti non venduti
     ).options(joinedload(Prodotto.acquisto)).all()
     
-    # Filtra solo quelli non venduti per la visualizzazione
-    prodotti_senza_seriali_non_venduti = [p for p in prodotti_senza_seriali if not p.venduto]
+    # CORREZIONE: Filtra solo prodotti non venduti e non fotorip
+    prodotti_senza_seriali_filtrati = []
+    for prodotto in prodotti_senza_seriali:
+        # Salta prodotti fotorip (hanno vendite con canale RIPARAZIONI)
+        is_fotorip = any(v.canale_vendita == "RIPARAZIONI" for v in prodotto.vendite)
+        if not is_fotorip:
+            prodotti_senza_seriali_filtrati.append(prodotto)
     
     # Acquisti non ancora arrivati
     acquisti_non_arrivati = db.query(Acquisto).filter(
@@ -195,7 +201,7 @@ async def da_gestire(request: Request, db: Session = Depends(get_db)):
     
     return templates.TemplateResponse("da_gestire.html", {
         "request": request,
-        "prodotti_senza_seriali": prodotti_senza_seriali_non_venduti,
+        "prodotti_senza_seriali": prodotti_senza_seriali_filtrati,
         "acquisti_non_arrivati": acquisti_non_arrivati,
         "now": datetime.now()
     })
@@ -221,15 +227,27 @@ async def segna_tutti_arrivati(db: Session = Depends(get_db)):
 async def inserisci_seriali_multipli_form(request: Request, db: Session = Depends(get_db)):
     """Form per inserimento seriali in blocco"""
     
-    # Ottieni tutti i prodotti senza seriali (non venduti)
+    # CORREZIONE: Filtro seriali più completo
     prodotti_senza_seriali = db.query(Prodotto).filter(
-        Prodotto.seriale.is_(None),
-        ~Prodotto.vendite.any()  # Non venduti
+        or_(
+            Prodotto.seriale.is_(None),
+            Prodotto.seriale == "",
+            Prodotto.seriale == "???",
+            Prodotto.seriale == "N/A"
+        ),
+        ~Prodotto.vendite.any()  # Solo prodotti non venduti
     ).options(joinedload(Prodotto.acquisto)).all()
+    
+    # CORREZIONE: Filtra prodotti fotorip
+    prodotti_filtrati = []
+    for prodotto in prodotti_senza_seriali:
+        is_fotorip = any(v.canale_vendita == "RIPARAZIONI" for v in prodotto.vendite)
+        if not is_fotorip:
+            prodotti_filtrati.append(prodotto)
     
     # Raggruppa per acquisto
     prodotti_raggruppati = {}
-    for prodotto in prodotti_senza_seriali:
+    for prodotto in prodotti_filtrati:
         acquisto_id = prodotto.acquisto.id
         if acquisto_id not in prodotti_raggruppati:
             prodotti_raggruppati[acquisto_id] = {
@@ -238,14 +256,14 @@ async def inserisci_seriali_multipli_form(request: Request, db: Session = Depend
             }
         prodotti_raggruppati[acquisto_id]['prodotti'].append(prodotto)
     
-    # Ordina per prioritÃ  (acquisti arrivati da piÃ¹ tempo prima)
+    # Ordina per priorità (acquisti arrivati da più tempo prima)
     prodotti_raggruppati = dict(sorted(
         prodotti_raggruppati.items(),
         key=lambda x: x[1]['acquisto'].data_consegna or date.min,
         reverse=False
     ))
     
-    total_prodotti = len(prodotti_senza_seriali)
+    total_prodotti = len(prodotti_filtrati)
     
     return templates.TemplateResponse("inserisci_seriali_multipli.html", {
         "request": request,
@@ -286,15 +304,15 @@ async def salva_seriali_multipli(request: Request, db: Session = Depends(get_db)
             continue
             
         try:
-            # Verifica che il seriale non esista giÃ  
+            # Verifica che il seriale non esista già  
             if db.query(Prodotto).filter(Prodotto.seriale == nuovo_seriale).first():
-                errori.append(f"Seriale {nuovo_seriale} giÃ  esistente nel database")
+                errori.append(f"Seriale {nuovo_seriale} già esistente nel database")
                 seriali_duplicati += 1
                 continue
             
             # Aggiorna il prodotto
             prodotto = db.query(Prodotto).filter(Prodotto.id == int(prodotto_id)).first()
-            if prodotto and not prodotto.seriale:  # Solo se non ha giÃ  un seriale
+            if prodotto and not prodotto.seriale:  # Solo se non ha già un seriale
                 prodotto.seriale = nuovo_seriale
                 seriali_inseriti += 1
                 
@@ -331,7 +349,7 @@ async def problemi(request: Request, db: Session = Depends(get_db)):
     
     now = datetime.now()
     
-    # Vendite lente: prodotti in stock da piÃ¹ di 30 giorni
+    # CORREZIONE: Vendite lente - solo prodotti business (non fotorip)
     vendite_lente = []
     
     # Query per prodotti non venduti con acquisti arrivati
@@ -341,6 +359,10 @@ async def problemi(request: Request, db: Session = Depends(get_db)):
     ).options(joinedload(Prodotto.acquisto)).all()
     
     for prodotto in prodotti_in_stock:
+        # CORREZIONE: Salta prodotti fotorip
+        if any(v.canale_vendita == "RIPARAZIONI" for v in prodotto.vendite):
+            continue
+            
         giorni_stock = (now.date() - prodotto.acquisto.data_consegna).days
         if giorni_stock > 30:
             # Calcola costo unitario
@@ -353,7 +375,7 @@ async def problemi(request: Request, db: Session = Depends(get_db)):
                 'costo_unitario': costo_unitario
             })
     
-    # Margini critici: acquisti con marginalitÃ  < 25% (solo vendite complete o parziali)
+    # CORREZIONE: Margini critici - esclude fotorip dai calcoli
     margini_critici = []
     
     # Query per acquisti con almeno una vendita
@@ -364,9 +386,12 @@ async def problemi(request: Request, db: Session = Depends(get_db)):
     ).all()
     
     for acquisto in acquisti_con_vendite:
-        # Filtra solo prodotti business (non fotorip)
-        prodotti_business = [p for p in acquisto.prodotti 
-                           if not any(v.canale_vendita == "RIPARAZIONI" for v in p.vendite)]
+        # CORREZIONE: Filtra solo prodotti business (non fotorip)
+        prodotti_business = []
+        for p in acquisto.prodotti:
+            is_fotorip = any(v.canale_vendita == "RIPARAZIONI" for v in p.vendite)
+            if not is_fotorip:
+                prodotti_business.append(p)
         
         if not prodotti_business:
             continue
@@ -399,7 +424,7 @@ async def problemi(request: Request, db: Session = Depends(get_db)):
                 'margine_percentuale': margine_percentuale
             })
     
-    # Ordina per gravitÃ  
+    # Ordina per gravità
     vendite_lente.sort(key=lambda x: x['giorni_stock'], reverse=True)
     margini_critici.sort(key=lambda x: x['margine_percentuale'])
     
@@ -418,7 +443,7 @@ async def lista_acquisti(request: Request, db: Session = Depends(get_db)):
     
     # Parametri di filtro dalla query string
     filtro_stato = request.query_params.get("filtro_stato", "tutti")
-    filtro_acquirente = request.query_params.get("filtro_acquirente", "tutti")  # NUOVO FILTRO
+    filtro_acquirente = request.query_params.get("filtro_acquirente", "tutti")
     ordinamento = request.query_params.get("ordinamento", "data_desc") 
     cerca = request.query_params.get("cerca", "")
     
@@ -430,13 +455,12 @@ async def lista_acquisti(request: Request, db: Session = Depends(get_db)):
     # Conta totali per statistiche
     acquisti_totali = query.count()
     
-    # NUOVO: Filtro per acquirente (solo se la colonna esiste)
+    # Filtro per acquirente (solo se la colonna esiste)
     acquirenti_lista = []
     if filtro_acquirente and filtro_acquirente != "tutti":
         try:
             query = query.filter(Acquisto.acquirente == filtro_acquirente)
         except AttributeError:
-            # Colonna acquirente non esiste ancora
             filtro_acquirente = "tutti"
     
     # Ottieni lista acquirenti per dropdown (solo se la colonna esiste)
@@ -446,7 +470,6 @@ async def lista_acquisti(request: Request, db: Session = Depends(get_db)):
         ).all()
         acquirenti_lista = sorted([a[0] for a in acquirenti_disponibili if a[0]])
     except AttributeError:
-        # Colonna acquirente non esiste ancora - usa lista default
         acquirenti_lista = ["Alessio"]
     
     # Applica filtri di ricerca
@@ -478,18 +501,30 @@ async def lista_acquisti(request: Request, db: Session = Depends(get_db)):
         )
     elif filtro_stato == "senza_seriali":
         query = query.filter(
-            Acquisto.prodotti.any(Prodotto.seriale.is_(None))
+            Acquisto.prodotti.any(
+                or_(
+                    Prodotto.seriale.is_(None),
+                    Prodotto.seriale == "",
+                    Prodotto.seriale == "???",
+                    Prodotto.seriale == "N/A"
+                )
+            )
         )
     elif filtro_stato == "non_arrivati":
         query = query.filter(Acquisto.data_consegna.is_(None))
     elif filtro_stato == "problematici":
         query = query.filter(
             or_(
-                # Prodotti senza seriali MA solo se non sono fotorip (non hanno vendite RIPARAZIONI)
+                # Prodotti senza seriali MA solo se non sono fotorip
                 and_(
                     Acquisto.prodotti.any(
                         and_(
-                            Prodotto.seriale.is_(None),
+                            or_(
+                                Prodotto.seriale.is_(None),
+                                Prodotto.seriale == "",
+                                Prodotto.seriale == "???",
+                                Prodotto.seriale == "N/A"
+                            ),
                             ~Prodotto.vendite.any(Vendita.canale_vendita == "RIPARAZIONI")
                         )
                     )
@@ -541,8 +576,8 @@ async def lista_acquisti(request: Request, db: Session = Depends(get_db)):
         "acquisti": acquisti,
         "acquisti_totali": acquisti_totali,
         "filtro_stato": filtro_stato,
-        "filtro_acquirente": filtro_acquirente,  # NUOVO
-        "acquirenti_lista": acquirenti_lista,    # NUOVO
+        "filtro_acquirente": filtro_acquirente,
+        "acquirenti_lista": acquirenti_lista,
         "ordinamento": ordinamento,  
         "cerca": cerca
     })
@@ -590,7 +625,7 @@ async def performance_dashboard(request: Request, db: Session = Depends(get_db))
             for p in prodotti_business if p.vendite
         )
         
-        # MarginalitÃ  (costo diviso per prodotti business, non totali)
+        # Marginalità (costo diviso per prodotti business, non totali)
         costo_per_prodotto = acquisto.costo_totale / len(acquisto.prodotti)  # Costo unitario originale
         costo_business = costo_per_prodotto * prodotti_totali  # Costo solo prodotti business
         margine = ricavi_totali - costo_business
@@ -718,7 +753,7 @@ async def statistiche_periodiche(request: Request, db: Session = Depends(get_db)
             }
         
         # Calcola metriche (solo per prodotti business)
-        costo_per_prodotto = acquisto.costo_totale / len(acquisto.prodotti)  # Costo unitario
+        costo_per_prodotto = acquisto.costo_totale / len(acquisto.prodotti)  # Costo unitario originale
         costo_business = costo_per_prodotto * len(prodotti_business)  # Costo solo business
         
         ricavi_business = sum(

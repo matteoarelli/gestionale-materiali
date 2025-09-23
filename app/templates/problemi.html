@@ -6,7 +6,7 @@
 <div class="d-flex justify-content-between align-items-center mb-4">
     <div>
         <h1><i class="bi bi-bug-fill text-danger"></i> Problemi</h1>
-        <p class="text-muted">Analisi vendite lente e margini critici</p>
+        <p class="text-muted">Analisi vendite lente e margini critici (esclude prodotti fotorip)</p>
     </div>
     <div>
         <span class="badge bg-danger fs-6">{{ problemi_count }} problemi</span>
@@ -61,6 +61,7 @@
             <ul class="mb-0">
                 <li><strong>Vendita Parziale:</strong> Solo alcuni prodotti dell'acquisto venduti</li>
                 <li><strong>Perdita:</strong> Marginalità negativa</li>
+                <li class="text-info"><strong>Nota:</strong> I prodotti fotorip sono esclusi dai calcoli</li>
             </ul>
         </div>
     </div>
@@ -87,6 +88,7 @@
                         <th>Investimento</th>
                         <th>Problema</th>
                         <th>Suggerimenti</th>
+                        <th>Azioni</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -98,6 +100,8 @@
                             </div>
                             {% if item.prodotto.seriale %}
                                 <br><small><code>{{ item.prodotto.seriale }}</code></small>
+                            {% else %}
+                                <br><small class="text-warning">Nessun seriale</small>
                             {% endif %}
                             {% if item.prodotto.note_prodotto %}
                                 <br><small class="text-muted">{{ item.prodotto.note_prodotto }}</small>
@@ -107,6 +111,15 @@
                             <strong>{{ item.acquisto.id_acquisto_univoco }}</strong>
                             <br>
                             <small class="text-muted">{{ item.acquisto.venditore }}</small>
+                            
+                            <!-- CORREZIONE: Badge acquirente aggiunto -->
+                            {% if item.acquisto.acquirente %}
+                            <br>
+                            <span class="badge {% if item.acquisto.acquirente == 'Alessio' %}bg-primary{% elif item.acquisto.acquirente == 'Matteo' %}bg-success{% else %}bg-info{% endif %}" 
+                                  style="font-size: 0.6rem;">
+                                <i class="bi bi-person"></i> {{ item.acquisto.acquirente }}
+                            </span>
+                            {% endif %}
                         </td>
                         <td>
                             {{ item.acquisto.data_consegna.strftime('%d/%m/%Y') }}
@@ -115,6 +128,9 @@
                             <span class="badge {% if item.giorni_stock > 60 %}bg-danger{% elif item.giorni_stock > 45 %}bg-warning{% else %}bg-secondary{% endif %}">
                                 {{ item.giorni_stock }} giorni
                             </span>
+                            {% if item.giorni_stock > 90 %}
+                                <br><small class="text-danger"><i class="bi bi-exclamation-triangle"></i> Critico</small>
+                            {% endif %}
                         </td>
                         <td>
                             <strong>€ {{ "%.2f"|format(item.costo_unitario) }}</strong>
@@ -123,12 +139,30 @@
                             <span class="text-danger">
                                 <i class="bi bi-exclamation-triangle"></i> Vendita molto lenta
                             </span>
+                            {% if item.giorni_stock > 90 %}
+                                <br><small class="text-danger">Stock eccessivo</small>
+                            {% endif %}
                         </td>
                         <td>
                             <div class="small">
                                 • Verifica prezzo di mercato<br>
                                 • Cambia canale vendita<br>
                                 • Considera promozione
+                                {% if item.giorni_stock > 90 %}
+                                    <br><strong class="text-danger">• Liquidazione urgente</strong>
+                                {% endif %}
+                            </div>
+                        </td>
+                        <td>
+                            <div class="btn-group-vertical" role="group">
+                                <button type="button" class="btn btn-sm btn-success mb-1" 
+                                        onclick="vendiProdotto({{ item.prodotto.id }}, '{{ item.acquisto.id_acquisto_univoco }}', '{{ item.prodotto.seriale or '' }}', '{{ item.prodotto.prodotto_descrizione|replace("'", "\\'") }}', {{ item.costo_unitario|round(2) }})"
+                                        title="Vendi prodotto">
+                                    <i class="bi bi-cash-coin"></i> Vendi
+                                </button>
+                                <a href="/acquisti/{{ item.acquisto.id }}/modifica" class="btn btn-sm btn-outline-primary" title="Modifica acquisto">
+                                    <i class="bi bi-pencil"></i> Modifica
+                                </a>
                             </div>
                         </td>
                     </tr>
@@ -147,7 +181,7 @@
         <h5 class="mb-0">
             <i class="bi bi-graph-down"></i> Margini Critici ({{ margini_critici|length }})
         </h5>
-        <small>Acquisti con marginalità inferiore al 25%</small>
+        <small>Acquisti con marginalità inferiore al 25% (calcolo business, esclusi fotorip)</small>
     </div>
     <div class="card-body">
         <div class="table-responsive">
@@ -161,6 +195,7 @@
                         <th>Marginalità</th>
                         <th>Problema</th>
                         <th>Suggerimenti</th>
+                        <th>Azioni</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -172,10 +207,24 @@
                             <small class="text-muted">{{ item.acquisto.venditore }}</small>
                             <br>
                             <small class="text-muted">{{ item.acquisto.dove_acquistato }}</small>
+                            
+                            <!-- CORREZIONE: Badge acquirente aggiunto -->
+                            {% if item.acquisto.acquirente %}
+                            <br>
+                            <span class="badge {% if item.acquisto.acquirente == 'Alessio' %}bg-primary{% elif item.acquisto.acquirente == 'Matteo' %}bg-success{% else %}bg-info{% endif %}" 
+                                  style="font-size: 0.6rem;">
+                                <i class="bi bi-person"></i> {{ item.acquisto.acquirente }}
+                            </span>
+                            {% endif %}
                         </td>
                         <td>
                             <div>
                                 <span class="badge bg-info">{{ item.prodotti_venduti }}/{{ item.prodotti_totali }} venduti</span>
+                                {% if item.prodotti_totali < item.acquisto.numero_prodotti %}
+                                    <br><small class="text-info">
+                                        <i class="bi bi-info-circle"></i> Alcuni prodotti fotorip esclusi
+                                    </small>
+                                {% endif %}
                             </div>
                             {% if not item.vendita_completa %}
                                 <br><small class="text-warning">Vendita parziale</small>
@@ -205,6 +254,16 @@
                             <small class="{% if item.margine >= 0 %}text-success{% else %}text-danger{% endif %}">
                                 € {{ "%.2f"|format(item.margine) }}
                             </small>
+                            
+                            <!-- Progress bar marginalità -->
+                            <div class="mt-1">
+                                <div class="progress" style="height: 4px;">
+                                    <div class="progress-bar {% if item.margine_percentuale >= 25 %}bg-success{% elif item.margine_percentuale >= 0 %}bg-warning{% else %}bg-danger{% endif %}" 
+                                         style="width: {{ [item.margine_percentuale + 50, 100]|max|min(100) }}%;" 
+                                         title="Marginalità: {{ "%.1f"|format(item.margine_percentuale) }}%">
+                                    </div>
+                                </div>
+                            </div>
                         </td>
                         <td>
                             {% if item.margine_percentuale < 0 %}
@@ -238,6 +297,16 @@
                                 {% endif %}
                             </div>
                         </td>
+                        <td>
+                            <div class="btn-group-vertical" role="group">
+                                <a href="/acquisti/{{ item.acquisto.id }}/modifica" class="btn btn-sm btn-outline-primary mb-1" title="Modifica acquisto">
+                                    <i class="bi bi-pencil"></i> Modifica
+                                </a>
+                                <a href="/performance" class="btn btn-sm btn-outline-info" title="Visualizza performance dettagliata">
+                                    <i class="bi bi-graph-up"></i> Analisi
+                                </a>
+                            </div>
+                        </td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -254,9 +323,14 @@
         <i class="bi bi-check-circle-fill fs-1 text-success"></i>
         <h4 class="mt-3 text-success">Nessun problema rilevato!</h4>
         <p class="text-muted">Tutte le vendite sono veloci e i margini sono buoni.</p>
-        <a href="/performance" class="btn btn-success">
-            <i class="bi bi-speedometer"></i> Visualizza Performance
-        </a>
+        <div class="mt-4">
+            <a href="/performance" class="btn btn-success me-2">
+                <i class="bi bi-speedometer"></i> Visualizza Performance
+            </a>
+            <a href="/statistiche" class="btn btn-outline-primary">
+                <i class="bi bi-bar-chart"></i> Statistiche Periodiche
+            </a>
+        </div>
     </div>
 </div>
 {% endif %}
@@ -277,6 +351,7 @@
                     <li><strong>Costi nascosti:</strong> Rivedi spese accessorie</li>
                     <li><strong>Prodotti poco richiesti:</strong> Valuta domanda di mercato</li>
                     <li><strong>Descrizioni inadeguate:</strong> Migliora listing</li>
+                    <li><strong>Seriali mancanti:</strong> Completa i seriali per la vendita</li>
                 </ul>
             </div>
         </div>
@@ -308,20 +383,38 @@
     </div>
     <div class="card-body">
         <div class="row">
-            <div class="col-md-4">
+            <div class="col-md-3">
                 <h6>Vendite Lente</h6>
+                {% if vendite_lente %}
+                <p class="small text-muted">{{ vendite_lente|length }} prodotti critici</p>
                 <button onclick="applicaScontoGenerale()" class="btn btn-outline-danger btn-sm">
                     <i class="bi bi-percent"></i> Applica Sconto 10%
                 </button>
+                {% else %}
+                <p class="small text-success">Nessuna vendita lenta</p>
+                {% endif %}
             </div>
-            <div class="col-md-4">
+            <div class="col-md-3">
                 <h6>Margini Critici</h6>
+                {% if margini_critici %}
+                <p class="small text-muted">{{ margini_critici|length }} acquisti sotto il 25%</p>
                 <a href="/statistiche" class="btn btn-outline-warning btn-sm">
                     <i class="bi bi-graph-up"></i> Analisi Dettagliata
                 </a>
+                {% else %}
+                <p class="small text-success">Tutti i margini sono OK</p>
+                {% endif %}
             </div>
-            <div class="col-md-4">
+            <div class="col-md-3">
+                <h6>Gestione Seriali</h6>
+                <p class="small text-muted">Risolvi problemi di base</p>
+                <a href="/da-gestire" class="btn btn-outline-info btn-sm">
+                    <i class="bi bi-upc-scan"></i> Da Gestire
+                </a>
+            </div>
+            <div class="col-md-3">
                 <h6>Report Completo</h6>
+                <p class="small text-muted">Esporta dati per analisi</p>
                 <button onclick="esportaProblemi()" class="btn btn-outline-info btn-sm">
                     <i class="bi bi-download"></i> Esporta Problemi
                 </button>
@@ -331,8 +424,390 @@
 </div>
 {% endif %}
 
+<!-- CORREZIONE: Include il modal per vendita (stesso di acquisti.html) -->
+{% if vendite_lente %}
+<!-- Modal per creare vendita manuale -->
+<div class="modal fade" id="modalCreaVendita" tabindex="-1" aria-labelledby="modalCreaVenditaLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title" id="modalCreaVenditaLabel">
+                    <i class="bi bi-cash-coin"></i> Vendi Prodotto - Risolvi Problema
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="formCreaVendita">
+                    <div class="row">
+                        <!-- Info prodotto pre-compilata -->
+                        <div class="col-12">
+                            <div class="card bg-light mb-3">
+                                <div class="card-body">
+                                    <h6 class="card-title">Prodotto Problematico</h6>
+                                    <div class="row">
+                                        <div class="col-md-4">
+                                            <strong>Seriale:</strong>
+                                            <span id="modal-seriale" class="text-primary">-</span>
+                                        </div>
+                                        <div class="col-md-8">
+                                            <strong>Descrizione:</strong>
+                                            <span id="modal-descrizione">-</span>
+                                        </div>
+                                    </div>
+                                    <div class="row mt-2">
+                                        <div class="col-md-4">
+                                            <strong>Costo Acquisto:</strong>
+                                            <span id="modal-costo" class="text-warning">-</span>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <strong>Prezzo Break-even:</strong>
+                                            <span id="modal-breakeven" class="text-danger">-</span>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <strong>Acquisto ID:</strong>
+                                            <span id="modal-acquisto-id">-</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <!-- Dati vendita -->
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="canale_vendita" class="form-label">
+                                    <i class="bi bi-shop"></i> Canale di Vendita *
+                                </label>
+                                <select id="canale_vendita" name="canale_vendita" class="form-select" required>
+                                    <option value="">-- Seleziona Canale --</option>
+                                    <option value="EBAY">eBay (8% commissioni)</option>
+                                    <option value="BACKMARKET">BackMarket (15% commissioni)</option>
+                                    <option value="REFURBED">Refurbed (17% commissioni)</option>
+                                    <option value="CDISCOUNT">CDiscount (15% commissioni)</option>
+                                    <option value="PAYPAL">PayPal (4% commissioni)</option>
+                                    <option value="BONIFICO BANCARIO">Bonifico Bancario (0% commissioni)</option>
+                                    <option value="CARTA DI CREDITO">Carta di Credito (0% commissioni)</option>
+                                    <option value="CONTRASSEGNO">Contrassegno (0% commissioni)</option>
+                                    <option value="SEDE-CONTANTI">Sede - Contanti (0% commissioni)</option>
+                                    <option value="SEDE-BANCOMAT">Sede - Bancomat (0% commissioni)</option>
+                                    <option value="SEDE-PERMUTA">Sede - Permuta (0% commissioni)</option>
+                                    <option value="PERMUTA">Permuta (0% commissioni)</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="prezzo_vendita" class="form-label">
+                                    <i class="bi bi-currency-euro"></i> Prezzo di Vendita *
+                                </label>
+                                <div class="input-group">
+                                    <span class="input-group-text">€</span>
+                                    <input type="number" id="prezzo_vendita" name="prezzo_vendita" 
+                                           class="form-control" step="0.01" min="0" required>
+                                    <button type="button" class="btn btn-outline-secondary" 
+                                            onclick="usaPrezzoBreakeven()" title="Usa prezzo break-even">
+                                        <i class="bi bi-arrow-up"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="data_vendita" class="form-label">
+                                    <i class="bi bi-calendar"></i> Data Vendita
+                                </label>
+                                <input type="date" id="data_vendita" name="data_vendita" class="form-control">
+                            </div>
+                        </div>
+
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">Commissioni Automatiche</label>
+                                <div class="form-control-plaintext" id="commissioni-preview">
+                                    Seleziona canale e prezzo per calcolare le commissioni
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-12">
+                            <div class="mb-3">
+                                <label for="note_vendita" class="form-label">
+                                    <i class="bi bi-chat-text"></i> Note Vendita
+                                </label>
+                                <textarea id="note_vendita" name="note_vendita" class="form-control" rows="2"
+                                          placeholder="Note aggiuntive sulla vendita (opzionale)"></textarea>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Anteprima calcoli -->
+                    <div id="anteprima-calcoli" class="card border-info" style="display: none;">
+                        <div class="card-body">
+                            <h6 class="card-title text-info">
+                                <i class="bi bi-calculator"></i> Anteprima Marginalità 
+                            </h6>
+                            <div class="row text-center">
+                                <div class="col-md-3">
+                                    <strong>Ricavo Lordo</strong><br>
+                                    <span id="ricavo-lordo" class="text-primary">€0.00</span>
+                                </div>
+                                <div class="col-md-3">
+                                    <strong>Commissioni</strong><br>
+                                    <span id="commissioni-calcolo" class="text-warning">€0.00</span>
+                                </div>
+                                <div class="col-md-3">
+                                    <strong>Ricavo Netto</strong><br>
+                                    <span id="ricavo-netto" class="text-success">€0.00</span>
+                                </div>
+                                <div class="col-md-3">
+                                    <strong>Margine</strong><br>
+                                    <span id="margine-percentuale" class="fw-bold">0.0%</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <input type="hidden" id="prodotto_id" name="prodotto_id">
+                    <input type="hidden" id="costo_prodotto" name="costo_prodotto">
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                    <i class="bi bi-x-circle"></i> Annulla
+                </button>
+                <button type="button" class="btn btn-success" onclick="salvaNuovaVendita()" id="btn-salva-vendita">
+                    <i class="bi bi-check-circle"></i> Vendi e Risolvi
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
 {% block scripts %}
 <script>
+// Variabili globali per il modal (stesse di acquisti.html)
+let currentProdottoData = {};
+
+// Commissioni per canale
+const commissioni_canali = {
+    'BONIFICO BANCARIO': 0.0,
+    'CARTA DI CREDITO': 0.0,
+    'BACKMARKET': 0.15,
+    'CDISCOUNT': 0.15,
+    'CONTRASSEGNO': 0.0,
+    'EBAY': 0.08,
+    'PAYPAL': 0.04,
+    'PERMUTA': 0.0,
+    'REFURBED': 0.17,
+    'SEDE-BANCOMAT': 0.0,
+    'SEDE-CONTANTI': 0.0,
+    'SEDE-PERMUTA': 0.0
+};
+
+// CORREZIONE: Funzione per aprire modal vendita (come in acquisti.html)
+function vendiProdotto(prodottoId, acquistoId, seriale, descrizione, costoUnitario) {
+    const prodottoData = {
+        prodotto_id: prodottoId,
+        seriale: seriale || null,
+        descrizione: descrizione || 'Prodotto senza descrizione',
+        costo_unitario: costoUnitario,
+        acquisto_id: acquistoId
+    };
+    
+    apriModalVendita(prodottoData);
+}
+
+function apriModalVendita(prodottoData) {
+    // Memorizza i dati del prodotto
+    currentProdottoData = prodottoData;
+    
+    // Popola i campi del modal
+    document.getElementById('modal-seriale').textContent = prodottoData.seriale || 'Nessun seriale';
+    document.getElementById('modal-descrizione').textContent = prodottoData.descrizione || 'N/A';
+    document.getElementById('modal-costo').textContent = '€' + parseFloat(prodottoData.costo_unitario || 0).toFixed(2);
+    document.getElementById('modal-acquisto-id').textContent = prodottoData.acquisto_id || 'N/A';
+    
+    // Calcola prezzo break-even (costo + 5% per coprire le commissioni minime)
+    const costoUnitario = parseFloat(prodottoData.costo_unitario || 0);
+    const prezzoBreakeven = costoUnitario * 1.05; // 5% per coprire spese
+    document.getElementById('modal-breakeven').textContent = '€' + prezzoBreakeven.toFixed(2);
+    
+    // Popola i campi hidden
+    document.getElementById('prodotto_id').value = prodottoData.prodotto_id;
+    document.getElementById('costo_prodotto').value = costoUnitario;
+    
+    // Imposta data odierna come default
+    document.getElementById('data_vendita').value = new Date().toISOString().split('T')[0];
+    
+    // Reset form
+    document.getElementById('formCreaVendita').reset();
+    document.getElementById('data_vendita').value = new Date().toISOString().split('T')[0];
+    document.getElementById('anteprima-calcoli').style.display = 'none';
+    
+    // Mostra il modal
+    const modal = new bootstrap.Modal(document.getElementById('modalCreaVendita'));
+    modal.show();
+}
+
+function usaPrezzoBreakeven() {
+    const costoUnitario = parseFloat(document.getElementById('costo_prodotto').value || 0);
+    const prezzoBreakeven = costoUnitario * 1.05;
+    document.getElementById('prezzo_vendita').value = prezzoBreakeven.toFixed(2);
+    
+    // Aggiorna anteprima se canale è selezionato
+    aggiornaAnteprimaCalcoli();
+}
+
+function aggiornaAnteprimaCalcoli() {
+    const canale = document.getElementById('canale_vendita').value;
+    const prezzoVendita = parseFloat(document.getElementById('prezzo_vendita').value || 0);
+    const costoUnitario = parseFloat(document.getElementById('costo_prodotto').value || 0);
+    
+    if (canale && prezzoVendita > 0) {
+        const commissionePerc = commissioni_canali[canale.toUpperCase()] || 0;
+        const commissioni = prezzoVendita * commissionePerc;
+        const ricavoNetto = prezzoVendita - commissioni;
+        const margine = ricavoNetto - costoUnitario;
+        const marginePerc = costoUnitario > 0 ? (margine / costoUnitario * 100) : 0;
+        
+        // Aggiorna UI
+        document.getElementById('ricavo-lordo').textContent = '€' + prezzoVendita.toFixed(2);
+        document.getElementById('commissioni-calcolo').textContent = '€' + commissioni.toFixed(2);
+        document.getElementById('ricavo-netto').textContent = '€' + ricavoNetto.toFixed(2);
+        
+        const margineEl = document.getElementById('margine-percentuale');
+        margineEl.textContent = marginePerc.toFixed(1) + '%';
+        
+        // Colora il margine in base alla performance
+        margineEl.className = 'fw-bold';
+        if (marginePerc >= 25) {
+            margineEl.classList.add('text-success');
+        } else if (marginePerc >= 0) {
+            margineEl.classList.add('text-warning');
+        } else {
+            margineEl.classList.add('text-danger');
+        }
+        
+        // Aggiorna preview commissioni
+        document.getElementById('commissioni-preview').textContent = 
+            `${(commissionePerc * 100).toFixed(1)}% - €${commissioni.toFixed(2)} di commissioni`;
+        
+        document.getElementById('anteprima-calcoli').style.display = 'block';
+    } else {
+        document.getElementById('anteprima-calcoli').style.display = 'none';
+        document.getElementById('commissioni-preview').textContent = 
+            'Seleziona canale e prezzo per calcolare le commissioni';
+    }
+}
+
+// Event listeners per aggiornamento real-time
+document.getElementById('canale_vendita')?.addEventListener('change', aggiornaAnteprimaCalcoli);
+document.getElementById('prezzo_vendita')?.addEventListener('input', aggiornaAnteprimaCalcoli);
+
+async function salvaNuovaVendita() {
+    const form = document.getElementById('formCreaVendita');
+    const btnSalva = document.getElementById('btn-salva-vendita');
+    
+    // Validazione form
+    if (!form.checkValidity()) {
+        form.reportValidity();
+        return;
+    }
+    
+    // Disabilita pulsante per evitare doppi submit
+    btnSalva.disabled = true;
+    btnSalva.innerHTML = '<i class="bi bi-hourglass-split"></i> Vendendo...';
+    
+    const formData = {
+        prodotto_id: document.getElementById('prodotto_id').value,
+        canale_vendita: document.getElementById('canale_vendita').value,
+        prezzo_vendita: document.getElementById('prezzo_vendita').value,
+        data_vendita: document.getElementById('data_vendita').value,
+        note_vendita: document.getElementById('note_vendita').value
+    };
+    
+    try {
+        const response = await fetch('/api/create-sale-from-purchase', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(formData)
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            // Successo - chiudi modal e aggiorna pagina
+            const modal = bootstrap.Modal.getInstance(document.getElementById('modalCreaVendita'));
+            modal.hide();
+            
+            // Mostra messaggio di successo
+            showSuccessAlert(`Problema risolto! ${result.message} (Ricavo netto: €${result.ricavo_netto.toFixed(2)})`);
+            
+            // Ricarica la pagina per vedere i cambiamenti
+            setTimeout(() => location.reload(), 2000);
+            
+        } else {
+            // Errore - mostra messaggio
+            showErrorAlert(result.error);
+        }
+        
+    } catch (error) {
+        console.error('Errore:', error);
+        showErrorAlert('Errore di connessione. Riprova.');
+    } finally {
+        // Riabilita pulsante
+        btnSalva.disabled = false;
+        btnSalva.innerHTML = '<i class="bi bi-check-circle"></i> Vendi e Risolvi';
+    }
+}
+
+function showSuccessAlert(message) {
+    const alert = document.createElement('div');
+    alert.className = 'alert alert-success alert-dismissible fade show position-fixed';
+    alert.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 300px;';
+    alert.innerHTML = `
+        <i class="bi bi-check-circle"></i> ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    `;
+    document.body.appendChild(alert);
+    
+    // Auto-rimuovi dopo 5 secondi
+    setTimeout(() => {
+        if (alert.parentNode) {
+            alert.parentNode.removeChild(alert);
+        }
+    }, 5000);
+}
+
+function showErrorAlert(message) {
+    const alert = document.createElement('div');
+    alert.className = 'alert alert-danger alert-dismissible fade show position-fixed';
+    alert.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 300px;';
+    alert.innerHTML = `
+        <i class="bi bi-exclamation-triangle"></i> ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    `;
+    document.body.appendChild(alert);
+    
+    // Auto-rimuovi dopo 8 secondi
+    setTimeout(() => {
+        if (alert.parentNode) {
+            alert.parentNode.removeChild(alert);
+        }
+    }, 8000);
+}
+
 function applicaScontoGenerale() {
     if (confirm('Applicare uno sconto del 10% a tutti i prodotti con vendite lente? Questa è una simulazione.')) {
         alert('Funzionalità in sviluppo - Integrazione con canali di vendita necessaria');
@@ -344,7 +819,8 @@ function esportaProblemi() {
     const problemiData = {
         vendite_lente: {{ vendite_lente|length if vendite_lente else 0 }},
         margini_critici: {{ margini_critici|length if margini_critici else 0 }},
-        data_export: new Date().toISOString()
+        data_export: new Date().toISOString(),
+        total_problemi: {{ problemi_count }}
     };
     
     const dataStr = JSON.stringify(problemiData, null, 2);

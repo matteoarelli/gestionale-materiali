@@ -63,13 +63,31 @@
                             <strong>{{ prodotto.acquisto.id_acquisto_univoco }}</strong>
                             <br>
                             <small class="text-muted">{{ prodotto.acquisto.venditore }}</small>
+                            
+                            {# CORREZIONE: Badge acquirente aggiunto #}
+                            {% if prodotto.acquisto.acquirente %}
+                            <br>
+                            <span class="badge {% if prodotto.acquisto.acquirente == 'Alessio' %}bg-primary{% elif prodotto.acquisto.acquirente == 'Matteo' %}bg-success{% else %}bg-info{% endif %}" 
+                                  style="font-size: 0.6rem;">
+                                <i class="bi bi-person"></i> {{ prodotto.acquisto.acquirente }}
+                            </span>
+                            {% endif %}
                         </td>
                         <td>
                             <div style="max-width: 250px;">
                                 {{ prodotto.prodotto_descrizione }}
+                                {# CORREZIONE: Controllo relazione vendite invece di campo venduto #}
+                                {% if prodotto.vendites %}
+                                    <i class="bi bi-check-circle text-success ms-1"></i>
+                                {% endif %}
                             </div>
                             {% if prodotto.note_prodotto %}
                                 <br><small class="text-muted">{{ prodotto.note_prodotto }}</small>
+                            {% endif %}
+                            
+                            {# CORREZIONE: Mostra seriale corrente se problematico #}
+                            {% if prodotto.seriale and prodotto.seriale in ["???", "N/A", ""] %}
+                                <br><small class="text-warning">Seriale attuale: "{{ prodotto.seriale }}"</small>
                             {% endif %}
                         </td>
                         <td>
@@ -86,6 +104,9 @@
                                 {% set giorni = (now.date() - prodotto.acquisto.data_consegna).days %}
                                 <span class="{% if giorni > 7 %}text-danger{% elif giorni > 3 %}text-warning{% else %}text-muted{% endif %}">
                                     {{ giorni }} giorni
+                                    {% if giorni > 14 %}
+                                        <i class="bi bi-exclamation-triangle text-danger" title="Priorità alta"></i>
+                                    {% endif %}
                                 </span>
                             {% else %}
                                 <span class="text-muted">-</span>
@@ -135,6 +156,15 @@
                             <strong>{{ acquisto.id_acquisto_univoco }}</strong>
                             <br>
                             <small class="text-muted">{{ acquisto.dove_acquistato }}</small>
+                            
+                            {# CORREZIONE: Badge acquirente aggiunto #}
+                            {% if acquisto.acquirente %}
+                            <br>
+                            <span class="badge {% if acquisto.acquirente == 'Alessio' %}bg-primary{% elif acquisto.acquirente == 'Matteo' %}bg-success{% else %}bg-info{% endif %}" 
+                                  style="font-size: 0.6rem;">
+                                <i class="bi bi-person"></i> {{ acquisto.acquirente }}
+                            </span>
+                            {% endif %}
                         </td>
                         <td>
                             <span class="badge bg-info">{{ acquisto.numero_prodotti }} prodotti</span>
@@ -164,6 +194,9 @@
                             {% if acquisto.giorni_attesa is not none %}
                                 <span class="{% if acquisto.giorni_attesa > 14 %}text-danger{% elif acquisto.giorni_attesa > 7 %}text-warning{% else %}text-muted{% endif %}">
                                     {{ acquisto.giorni_attesa }} giorni
+                                    {% if acquisto.giorni_attesa > 21 %}
+                                        <i class="bi bi-exclamation-triangle text-danger" title="Ritardo significativo"></i>
+                                    {% endif %}
                                 </span>
                             {% else %}
                                 <span class="text-muted">-</span>
@@ -216,7 +249,7 @@
                 <p class="small text-muted">Inserisci i seriali per abilitare la vendita</p>
                 <form method="post" action="/da-gestire/inserisci-seriali-multipli" class="d-inline">
                     <button type="submit" class="btn btn-warning btn-sm">
-                        <i class="bi bi-upc-scan"></i> Gestisci Seriali in Blocco
+                        <i class="bi bi-upc-scan"></i> Gestisci Seriali in Blocco ({{ prodotti_senza_seriali|length }})
                     </button>
                 </form>
             </div>
@@ -226,12 +259,20 @@
                 <h6>Consegne in sospeso</h6>
                 <p class="small text-muted">Segna come arrivati quando ricevuti</p>
                 <button onclick="segnaMultipliArrivati()" class="btn btn-info btn-sm">
-                    <i class="bi bi-truck"></i> Segna Tutti come Arrivati Oggi
+                    <i class="bi bi-truck"></i> Segna Tutti come Arrivati Oggi ({{ acquisti_non_arrivati|length }})
                 </button>
             </div>
             {% endif %}
         </div>
     </div>
+</div>
+{% endif %}
+
+{# CORREZIONE: Messaggio successo seriali inseriti #}
+{% if request.query_params.get('seriali_inserted') %}
+<div class="alert alert-success alert-dismissible fade show mb-4">
+    <i class="bi bi-check-circle"></i> {{ request.query_params.get('seriali_inserted') }} seriali inseriti con successo!
+    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
 </div>
 {% endif %}
 
@@ -259,15 +300,18 @@ function segnaArrivato(acquistoId) {
 }
 
 function segnaMultipliArrivati() {
-    if (confirm('Segnare TUTTI gli acquisti non arrivati come arrivati oggi? Questa azione non può essere annullata.')) {
+    const count = {{ acquisti_non_arrivati|length }};
+    if (confirm(`Segnare TUTTI i ${count} acquisti non arrivati come arrivati oggi? Questa azione non può essere annullata.`)) {
         fetch('/da-gestire/segna-tutti-arrivati', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
             }
         })
-        .then(response => {
-            if (response.ok) {
+        .then(response => response.json())
+        .then(data => {
+            if (data.message) {
+                alert(data.message);
                 location.reload();
             } else {
                 alert('Errore nell\'aggiornamento');
