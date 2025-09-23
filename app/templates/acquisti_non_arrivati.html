@@ -1,0 +1,707 @@
+{% extends "base.html" %}
+
+{% block title %}Acquisti - Gestionale Materiali{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h1><i class="bi bi-truck text-warning"></i> Acquisti Non Arrivati</h1>
+        <p class="text-muted">Gestione acquisti pagati ma non ancora ricevuti con segnalazione problemi</p>
+    </div>
+    <div>
+        <span class="badge bg-warning fs-6">{{ acquisti_non_arrivati|length }} in attesa</span>
+        <a href="/acquisti" class="btn btn-outline-primary ms-2">
+            <i class="bi bi-arrow-left"></i> Tutti gli Acquisti
+        </a>
+    </div>
+</div>
+
+<!-- Statistiche rapide -->
+<div class="row mb-4">
+    <div class="col-md-2">
+        <div class="card text-center">
+            <div class="card-body">
+                <h6 class="text-muted">Totale</h6>
+                <h4>{{ acquisti_non_arrivati|length }}</h4>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2">
+        <div class="card text-center border-warning">
+            <div class="card-body">
+                <h6 class="text-muted">Attesa Normale</h6>
+                <h4 class="text-warning">{{ acquisti_normali|length }}</h4>
+                <small class="text-muted">≤7 giorni</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2">
+        <div class="card text-center border-danger">
+            <div class="card-body">
+                <h6 class="text-muted">Ritardo</h6>
+                <h4 class="text-danger">{{ acquisti_ritardo|length }}</h4>
+                <small class="text-muted">>7 giorni</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2">
+        <div class="card text-center border-dark">
+            <div class="card-body">
+                <h6 class="text-muted">Con Problemi</h6>
+                <h4 class="text-dark">{{ acquisti_con_problemi|length }}</h4>
+                <small class="text-muted">Segnalati</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2">
+        <div class="card text-center border-success">
+            <div class="card-body">
+                <h6 class="text-muted">Investimento</h6>
+                <h4 class="text-success">€{{ "%.0f"|format(investimento_totale) }}</h4>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2">
+        <div class="card text-center border-info">
+            <div class="card-body">
+                <h6 class="text-muted">Prodotti</h6>
+                <h4 class="text-info">{{ prodotti_totali }}</h4>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Filtri e ordinamento -->
+<div class="card mb-4">
+    <div class="card-body">
+        <form method="GET" action="/acquisti-non-arrivati" class="row align-items-end">
+            <div class="col-md-3">
+                <label class="form-label">Filtro Stato</label>
+                <select name="filtro_stato" class="form-select">
+                    <option value="tutti" {% if filtro_stato == 'tutti' %}selected{% endif %}>Tutti non arrivati</option>
+                    <option value="normali" {% if filtro_stato == 'normali' %}selected{% endif %}>Attesa Normale (≤7gg)</option>
+                    <option value="ritardo" {% if filtro_stato == 'ritardo' %}selected{% endif %}>In Ritardo (>7gg)</option>
+                    <option value="critico" {% if filtro_stato == 'critico' %}selected{% endif %}>Ritardo Critico (>14gg)</option>
+                    <option value="con_problemi" {% if filtro_stato == 'con_problemi' %}selected{% endif %}>Con Problemi Segnalati</option>
+                    <option value="senza_problemi" {% if filtro_stato == 'senza_problemi' %}selected{% endif %}>Senza Problemi</option>
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Ordinamento</label>
+                <select name="ordinamento" class="form-select">
+                    <option value="attesa_desc" {% if ordinamento == 'attesa_desc' %}selected{% endif %}>Giorni Attesa ↓</option>
+                    <option value="attesa_asc" {% if ordinamento == 'attesa_asc' %}selected{% endif %}>Giorni Attesa ↑</option>
+                    <option value="data_desc" {% if ordinamento == 'data_desc' %}selected{% endif %}>Data Pagamento ↓</option>
+                    <option value="data_asc" {% if ordinamento == 'data_asc' %}selected{% endif %}>Data Pagamento ↑</option>
+                    <option value="costo_desc" {% if ordinamento == 'costo_desc' %}selected{% endif %}>Costo ↓</option>
+                    <option value="problemi_desc" {% if ordinamento == 'problemi_desc' %}selected{% endif %}>Problemi Prima</option>
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Cerca</label>
+                <input type="text" name="cerca" class="form-control" placeholder="ID, venditore..." value="{{ cerca or '' }}">
+            </div>
+            <div class="col-md-3">
+                <button type="submit" class="btn btn-outline-primary w-100">
+                    <i class="bi bi-funnel"></i> Applica Filtri
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Tabella acquisti non arrivati -->
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0">
+            Acquisti in Attesa 
+            {% if filtro_stato and filtro_stato != 'tutti' %}
+                - {{ filtro_stato|replace('_', ' ')|title }}
+            {% endif %}
+        </h5>
+        <div>
+            <button class="btn btn-sm btn-success" onclick="segnaMultipliArrivati()" title="Segna tutti come arrivati">
+                <i class="bi bi-check-all"></i> Tutti Arrivati
+            </button>
+        </div>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-hover">
+                <thead class="table-dark">
+                    <tr>
+                        <th>
+                            <input type="checkbox" id="selectAll" onchange="toggleSelectAll()">
+                        </th>
+                        <th>ID Acquisto</th>
+                        <th>Prodotti</th>
+                        <th>Venditore</th>
+                        <th>Costo</th>
+                        <th>Date</th>
+                        <th>Attesa</th>
+                        <th>Problemi</th>
+                        <th>Azioni</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for acquisto in acquisti_filtered %}
+                    <tr class="{% if acquisto.problema_segnalato %}table-danger{% elif acquisto.giorni_attesa > 14 %}table-warning{% endif %}" 
+                        data-acquisto-id="{{ acquisto.id }}">
+                        
+                        <td>
+                            <input type="checkbox" class="acquisto-checkbox" value="{{ acquisto.id }}">
+                        </td>
+                        
+                        <td>
+                            <div class="d-flex align-items-center">
+                                {% if acquisto.problema_segnalato %}
+                                    <i class="bi bi-exclamation-triangle-fill text-danger me-2" title="Problema segnalato"></i>
+                                {% elif acquisto.giorni_attesa > 14 %}
+                                    <i class="bi bi-clock-fill text-warning me-2" title="Ritardo significativo"></i>
+                                {% endif %}
+                                
+                                <div>
+                                    <strong>{{ acquisto.id_acquisto_univoco }}</strong>
+                                    <br>
+                                    <small class="text-muted">{{ acquisto.dove_acquistato }}</small>
+                                </div>
+                            </div>
+                            
+                            <!-- Badge acquirente -->
+                            {% if acquisto.acquirente %}
+                            <div class="mt-1">
+                                <span class="badge {% if acquisto.acquirente == 'Alessio' %}bg-primary{% elif acquisto.acquirente == 'Matteo' %}bg-success{% else %}bg-info{% endif %}" style="font-size: 0.65rem;">
+                                    <i class="bi bi-person"></i> {{ acquisto.acquirente }}
+                                </span>
+                            </div>
+                            {% endif %}
+                        </td>
+                        
+                        <td>
+                            <div class="mb-1">
+                                <span class="badge bg-info">{{ acquisto.numero_prodotti }} prodotti</span>
+                            </div>
+                            
+                            <!-- Lista prodotti compatta -->
+                            <div class="small" style="max-height: 60px; overflow-y: auto;">
+                                {% for prodotto in acquisto.prodotti[:2] %}
+                                <div class="text-muted mb-1">
+                                    {{ prodotto.prodotto_descrizione[:30] }}
+                                    {% if prodotto.prodotto_descrizione|length > 30 %}...{% endif %}
+                                </div>
+                                {% endfor %}
+                                {% if acquisto.numero_prodotti > 2 %}
+                                    <small class="text-muted">...e altri {{ acquisto.numero_prodotti - 2 }}</small>
+                                {% endif %}
+                            </div>
+                        </td>
+                        
+                        <td>
+                            <strong>{{ acquisto.venditore }}</strong>
+                        </td>
+                        
+                        <td>
+                            <div>
+                                <strong>€ {{ "%.2f"|format(acquisto.costo_totale) }}</strong>
+                            </div>
+                            {% if acquisto.costi_accessori > 0 %}
+                                <small class="text-muted">
+                                    ({{ "%.2f"|format(acquisto.costo_acquisto) }} + {{ "%.2f"|format(acquisto.costi_accessori) }})
+                                </small>
+                            {% endif %}
+                            <div class="small text-muted">
+                                €{{ "%.2f"|format(acquisto.costo_totale / acquisto.numero_prodotti) }}/pezzo
+                            </div>
+                        </td>
+                        
+                        <td>
+                            <div class="mb-1">
+                                {% if acquisto.data_pagamento %}
+                                    <strong>{{ acquisto.data_pagamento.strftime('%d/%m/%Y') }}</strong>
+                                    <br><small class="text-muted">Pagamento</small>
+                                {% else %}
+                                    {{ acquisto.created_at.strftime('%d/%m/%Y') }}
+                                    <br><small class="text-muted">Creato</small>
+                                {% endif %}
+                            </div>
+                        </td>
+                        
+                        <td>
+                            {% if acquisto.giorni_attesa is not none %}
+                                <div class="text-center">
+                                    <span class="badge {% if acquisto.giorni_attesa > 14 %}bg-danger{% elif acquisto.giorni_attesa > 7 %}bg-warning{% else %}bg-secondary{% endif %} fs-6">
+                                        {{ acquisto.giorni_attesa }}
+                                    </span>
+                                    <br>
+                                    <small class="text-muted">giorni</small>
+                                    
+                                    {% if acquisto.giorni_attesa > 21 %}
+                                        <br><small class="text-danger"><strong>CRITICO</strong></small>
+                                    {% elif acquisto.giorni_attesa > 14 %}
+                                        <br><small class="text-warning"><strong>RITARDO</strong></small>
+                                    {% endif %}
+                                </div>
+                            {% else %}
+                                <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                        
+                        <td>
+                            {% if acquisto.problema_tipo %}
+                                <div class="mb-1">
+                                    <span class="badge bg-danger">{{ acquisto.problema_tipo|replace('_', ' ')|title }}</span>
+                                </div>
+                                {% if acquisto.problema_descrizione %}
+                                    <small class="text-muted" title="{{ acquisto.problema_descrizione }}">
+                                        {{ acquisto.problema_descrizione[:30] }}
+                                        {% if acquisto.problema_descrizione|length > 30 %}...{% endif %}
+                                    </small>
+                                {% endif %}
+                                {% if acquisto.problema_data_segnalazione %}
+                                    <div class="small text-muted">
+                                        Segnalato: {{ acquisto.problema_data_segnalazione.strftime('%d/%m') }}
+                                    </div>
+                                {% endif %}
+                            {% else %}
+                                <span class="text-success">
+                                    <i class="bi bi-check-circle"></i> Nessun problema
+                                </span>
+                            {% endif %}
+                        </td>
+                        
+                        <td>
+                            <div class="btn-group-vertical" role="group">
+                                <!-- Prima riga azioni -->
+                                <div class="btn-group mb-1" role="group">
+                                    <!-- Segna come arrivato -->
+                                    <button type="button" class="btn btn-sm btn-success" 
+                                            onclick="segnaArrivato({{ acquisto.id }})" title="Segna come arrivato oggi">
+                                        <i class="bi bi-truck"></i>
+                                    </button>
+                                    
+                                    <!-- Modifica -->
+                                    <a href="/acquisti/{{ acquisto.id }}/modifica" 
+                                       class="btn btn-sm btn-outline-primary" title="Modifica acquisto">
+                                        <i class="bi bi-pencil"></i>
+                                    </a>
+                                </div>
+                                
+                                <!-- Seconda riga - Gestione problemi -->
+                                <div class="btn-group" role="group">
+                                    {% if not acquisto.problema_tipo %}
+                                        <!-- Segnala problema -->
+                                        <button type="button" class="btn btn-sm btn-outline-danger" 
+                                                onclick="segnalaProblema({{ acquisto.id }}, '{{ acquisto.id_acquisto_univoco }}')" 
+                                                title="Segnala problema">
+                                            <i class="bi bi-exclamation-triangle"></i> Problema
+                                        </button>
+                                    {% else %}
+                                        <!-- Risolvi problema -->
+                                        <button type="button" class="btn btn-sm btn-danger" 
+                                                onclick="risolviProblema({{ acquisto.id }})" 
+                                                title="Risolvi problema">
+                                            <i class="bi bi-check-square"></i> Risolvi
+                                        </button>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        
+        {% if not acquisti_filtered %}
+        <div class="text-center py-5">
+            <i class="bi bi-truck fs-1 text-muted"></i>
+            <p class="text-muted mt-3">Nessun acquisto non arrivato trovato con i filtri selezionati</p>
+            {% if filtro_stato and filtro_stato != 'tutti' %}
+                <a href="/acquisti-non-arrivati" class="btn btn-outline-primary">
+                    <i class="bi bi-arrow-clockwise"></i> Rimuovi Filtri
+                </a>
+            {% else %}
+                <div class="alert alert-success mt-3">
+                    <i class="bi bi-check-circle"></i> Tutti gli acquisti sono arrivati!
+                </div>
+            {% endif %}
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Azioni multiple -->
+{% if acquisti_filtered %}
+<div class="card mt-4 border-warning">
+    <div class="card-header bg-warning text-dark">
+        <h6 class="mb-0"><i class="bi bi-lightning-fill"></i> Azioni Multiple</h6>
+    </div>
+    <div class="card-body">
+        <div class="row">
+            <div class="col-md-3">
+                <h6>Consegne</h6>
+                <button onclick="segnaSelezionatiArrivati()" class="btn btn-outline-success btn-sm" disabled id="btnSegnaArrivati">
+                    <i class="bi bi-truck"></i> Segna Selezionati come Arrivati
+                </button>
+            </div>
+            <div class="col-md-3">
+                <h6>Problemi</h6>
+                <button onclick="segnalaProblemaMultiplo()" class="btn btn-outline-danger btn-sm" disabled id="btnSegnalaProblemi">
+                    <i class="bi bi-exclamation-triangle"></i> Segnala Problema su Selezionati
+                </button>
+            </div>
+            <div class="col-md-3">
+                <h6>Esportazione</h6>
+                <button onclick="esportaFiltrati()" class="btn btn-outline-info btn-sm">
+                    <i class="bi bi-download"></i> Esporta Lista Filtrata
+                </button>
+            </div>
+            <div class="col-md-3">
+                <h6>Navigazione</h6>
+                <a href="/da-gestire" class="btn btn-outline-primary btn-sm">
+                    <i class="bi bi-list-task"></i> Vai a Da Gestire
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Modal per segnalazione problema -->
+<div class="modal fade" id="modalSegnalaProblema" tabindex="-1" aria-labelledby="modalSegnalaProblemaLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title" id="modalSegnalaProblemaLabel">
+                    <i class="bi bi-exclamation-triangle"></i> Segnala Problema
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="formSegnalaProblema">
+                    <div class="mb-3">
+                        <label class="form-label">Acquisto:</label>
+                        <div class="form-control-plaintext bg-light p-2 rounded">
+                            <strong id="acquistoProblema">-</strong>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="problema_tipo" class="form-label">Tipo Problema *</label>
+                        <select id="problema_tipo" name="problema_tipo" class="form-select" required>
+                            <option value="">-- Seleziona tipo problema --</option>
+                            <option value="pacco_perso">Pacco Perso/Non Consegnato</option>
+                            <option value="prodotti_non_conformi">Prodotti Non Conformi</option>
+                            <option value="prodotti_danneggiati">Prodotti Danneggiati</option>
+                            <option value="ritardo_consegna">Ritardo Consegna Eccessivo</option>
+                            <option value="problema_venditore">Problema con Venditore</option>
+                            <option value="altro">Altro</option>
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="problema_descrizione" class="form-label">Descrizione Problema</label>
+                        <textarea id="problema_descrizione" name="problema_descrizione" 
+                                  class="form-control" rows="3" 
+                                  placeholder="Descrivi il problema in dettaglio (opzionale ma consigliato)"></textarea>
+                    </div>
+                    
+                    <input type="hidden" id="acquisto_id_problema" name="acquisto_id">
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                    <i class="bi bi-x-circle"></i> Annulla
+                </button>
+                <button type="button" class="btn btn-danger" onclick="salvaSegnalazioneProblema()">
+                    <i class="bi bi-exclamation-triangle"></i> Segnala Problema
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.table tbody tr.table-danger {
+    --bs-table-accent-bg: rgba(220, 53, 69, 0.15);
+}
+
+.table tbody tr.table-warning {
+    --bs-table-accent-bg: rgba(255, 193, 7, 0.15);
+}
+
+.badge.fs-6 {
+    font-size: 1rem !important;
+}
+</style>
+
+<script>
+let acquisti_selezionati = new Set();
+
+// Auto-submit form quando cambiano i filtri
+document.querySelectorAll('select[name="filtro_stato"], select[name="ordinamento"]').forEach(select => {
+    select.addEventListener('change', function() {
+        this.form.submit();
+    });
+});
+
+// Gestione selezione multipla
+function toggleSelectAll() {
+    const selectAll = document.getElementById('selectAll');
+    const checkboxes = document.querySelectorAll('.acquisto-checkbox');
+    
+    checkboxes.forEach(cb => {
+        cb.checked = selectAll.checked;
+        if (selectAll.checked) {
+            acquisti_selezionati.add(parseInt(cb.value));
+        } else {
+            acquisti_selezionati.delete(parseInt(cb.value));
+        }
+    });
+    
+    aggiornaButtoniAzioniMultiple();
+}
+
+// Gestione checkbox singolo
+document.querySelectorAll('.acquisto-checkbox').forEach(cb => {
+    cb.addEventListener('change', function() {
+        if (this.checked) {
+            acquisti_selezionati.add(parseInt(this.value));
+        } else {
+            acquisti_selezionati.delete(parseInt(this.value));
+        }
+        
+        // Aggiorna stato selectAll
+        const tuttiCheckbox = document.querySelectorAll('.acquisto-checkbox');
+        const selezionati = document.querySelectorAll('.acquisto-checkbox:checked');
+        document.getElementById('selectAll').checked = tuttiCheckbox.length === selezionati.length;
+        
+        aggiornaButtoniAzioniMultiple();
+    });
+});
+
+function aggiornaButtoniAzioniMultiple() {
+    const hasSelection = acquisti_selezionati.size > 0;
+    document.getElementById('btnSegnaArrivati').disabled = !hasSelection;
+    document.getElementById('btnSegnalaProblemi').disabled = !hasSelection;
+    
+    // Aggiorna testi con count
+    document.getElementById('btnSegnaArrivati').innerHTML = 
+        `<i class="bi bi-truck"></i> Segna ${acquisti_selezionati.size} come Arrivati`;
+    document.getElementById('btnSegnalaProblemi').innerHTML = 
+        `<i class="bi bi-exclamation-triangle"></i> Segnala Problema su ${acquisti_selezionati.size}`;
+}
+
+// Funzione per segnare singolo acquisto come arrivato
+function segnaArrivato(acquistoId) {
+    if (confirm('Segnare questo acquisto come arrivato oggi?')) {
+        fetch(`/acquisti/${acquistoId}/segna-arrivato`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        })
+        .then(response => {
+            if (response.ok) {
+                location.reload();
+            } else {
+                alert('Errore nell\'aggiornamento');
+            }
+        })
+        .catch(error => {
+            console.error('Errore:', error);
+            alert('Errore nell\'aggiornamento');
+        });
+    }
+}
+
+// Funzione per segnare multipli acquisti come arrivati
+function segnaSelezionatiArrivati() {
+    if (acquisti_selezionati.size === 0) return;
+    
+    if (confirm(`Segnare ${acquisti_selezionati.size} acquisti selezionati come arrivati oggi?`)) {
+        const promises = Array.from(acquisti_selezionati).map(acquistoId => 
+            fetch(`/acquisti/${acquistoId}/segna-arrivato`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            })
+        );
+        
+        Promise.all(promises)
+            .then(responses => {
+                const successi = responses.filter(r => r.ok).length;
+                alert(`${successi}/${acquisti_selezionati.size} acquisti aggiornati con successo`);
+                location.reload();
+            })
+            .catch(error => {
+                console.error('Errore:', error);
+                alert('Errore nell\'aggiornamento multiplo');
+            });
+    }
+}
+
+function segnaMultipliArrivati() {
+    const count = {{ acquisti_filtered|length }};
+    if (confirm(`Segnare TUTTI i ${count} acquisti mostrati come arrivati oggi? Questa azione non può essere annullata.`)) {
+        fetch('/acquisti-non-arrivati/segna-tutti-arrivati', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert(data.message);
+                location.reload();
+            } else {
+                alert('Errore: ' + data.error);
+            }
+        })
+        .catch(error => {
+            console.error('Errore:', error);
+            alert('Errore nell\'aggiornamento');
+        });
+    }
+}
+
+// Gestione segnalazione problemi
+function segnalaProblema(acquistoId, acquistoNome) {
+    document.getElementById('acquisto_id_problema').value = acquistoId;
+    document.getElementById('acquistoProblema').textContent = acquistoNome;
+    
+    // Reset form
+    document.getElementById('formSegnalaProblema').reset();
+    document.getElementById('acquisto_id_problema').value = acquistoId;
+    
+    const modal = new bootstrap.Modal(document.getElementById('modalSegnalaProblema'));
+    modal.show();
+}
+
+function salvaSegnalazioneProblema() {
+    const form = document.getElementById('formSegnalaProblema');
+    
+    if (!form.checkValidity()) {
+        form.reportValidity();
+        return;
+    }
+    
+    const formData = {
+        acquisto_id: document.getElementById('acquisto_id_problema').value,
+        problema_tipo: document.getElementById('problema_tipo').value,
+        problema_descrizione: document.getElementById('problema_descrizione').value
+    };
+    
+    fetch('/acquisti/segnala-problema', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(formData)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            const modal = bootstrap.Modal.getInstance(document.getElementById('modalSegnalaProblema'));
+            modal.hide();
+            
+            showSuccessAlert(data.message);
+            setTimeout(() => location.reload(), 1500);
+        } else {
+            showErrorAlert(data.error);
+        }
+    })
+    .catch(error => {
+        console.error('Errore:', error);
+        showErrorAlert('Errore di connessione. Riprova.');
+    });
+}
+
+function risolviProblema(acquistoId) {
+    if (confirm('Contrassegnare questo problema come risolto? Il problema verrà rimosso.')) {
+        fetch('/acquisti/risolvi-problema', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ acquisto_id: acquistoId })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showSuccessAlert(data.message);
+                setTimeout(() => location.reload(), 1500);
+            } else {
+                showErrorAlert(data.error);
+            }
+        })
+        .catch(error => {
+            console.error('Errore:', error);
+            showErrorAlert('Errore di connessione. Riprova.');
+        });
+    }
+}
+
+function segnalaProblemaMultiplo() {
+    if (acquisti_selezionati.size === 0) return;
+    
+    // Implementazione futura per segnalazione multipla
+    alert(`Funzionalità segnalazione multipla in sviluppo per ${acquisti_selezionati.size} acquisti`);
+}
+
+function esportaFiltrati() {
+    const data = Array.from(document.querySelectorAll('tbody tr')).map(row => {
+        const cells = row.querySelectorAll('td');
+        return {
+            id: cells[1].querySelector('strong').textContent,
+            venditore: cells[3].textContent.trim(),
+            costo: cells[4].querySelector('strong').textContent,
+            giorni_attesa: cells[6].querySelector('.badge')?.textContent || '0',
+            problema: cells[7].querySelector('.badge')?.textContent || 'Nessuno'
+        };
+    });
+    
+    const dataStr = JSON.stringify(data, null, 2);
+    const dataBlob = new Blob([dataStr], {type:'application/json'});
+    
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(dataBlob);
+    link.download = 'acquisti_non_arrivati_' + new Date().toISOString().split('T')[0] + '.json';
+    link.click();
+}
+
+function showSuccessAlert(message) {
+    const alert = document.createElement('div');
+    alert.className = 'alert alert-success alert-dismissible fade show position-fixed';
+    alert.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 300px;';
+    alert.innerHTML = `
+        <i class="bi bi-check-circle"></i> ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    `;
+    document.body.appendChild(alert);
+    
+    setTimeout(() => {
+        if (alert.parentNode) {
+            alert.parentNode.removeChild(alert);
+        }
+    }, 5000);
+}
+
+function showErrorAlert(message) {
+    const alert = document.createElement('div');
+    alert.className = 'alert alert-danger alert-dismissible fade show position-fixed';
+    alert.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 300px;';
+    alert.innerHTML = `
+        <i class="bi bi-exclamation-triangle"></i> ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    `;
+    document.body.appendChild(alert);
+    
+    setTimeout(() => {
+        if (alert.parentNode) {
+            alert.parentNode.removeChild(alert);
+        }
+    }, 8000);
+}
+</script>
+{% endblock %}

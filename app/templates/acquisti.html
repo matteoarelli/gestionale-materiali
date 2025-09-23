@@ -155,7 +155,7 @@
                             </div>
                             <small class="text-muted">{{ acquisto.dove_acquistato }}</small>
                             
-                            <!-- NUOVO: Badge Acquirente -->
+                            <!-- Badge Acquirente -->
                             {% if acquisto.acquirente %}
                             <div class="mt-1">
                                 <span class="badge {% if acquisto.acquirente == 'Alessio' %}bg-primary{% elif acquisto.acquirente == 'Matteo' %}bg-success{% else %}bg-info{% endif %}" style="font-size: 0.65rem;">
@@ -164,8 +164,17 @@
                             </div>
                             {% endif %}
                             
-                            <!-- Problemi -->
-                            {% if acquisto.problemi_list %}
+                            <!-- NUOVO: Indicatore problema segnalato -->
+                            {% if acquisto.problema_segnalato %}
+                            <div class="mt-1">
+                                <span class="badge bg-danger" style="font-size: 0.6rem;" title="{{ acquisto.problema_descrizione or '' }}">
+                                    <i class="bi bi-exclamation-triangle-fill"></i> {{ acquisto.problema_tipo|replace('_', ' ')|title }}
+                                </span>
+                            </div>
+                            {% endif %}
+                            
+                            <!-- Problemi automatici -->
+                            {% if acquisto.problemi_list and not acquisto.problema_segnalato %}
                                 <div class="mt-1">
                                     {% for problema in acquisto.problemi_list %}
                                         <span class="badge bg-secondary" style="font-size: 0.6rem;">{{ problema }}</span>
@@ -349,7 +358,26 @@
                                     {% endif %}
                                 </div>
                                 
-                                <!-- NUOVA: Riga pulsanti Vendi -->
+                                <!-- NUOVA riga: Gestione problemi (solo per acquisti non arrivati) -->
+                                {% if not acquisto.data_consegna %}
+                                <div class="btn-group mb-1" role="group">
+                                    {% if not acquisto.problema_segnalato %}
+                                    <button type="button" class="btn btn-sm btn-outline-warning" 
+                                            title="Segnala problema" 
+                                            onclick="segnalaProblema({{ acquisto.id }}, '{{ acquisto.id_acquisto_univoco }}')">
+                                        <i class="bi bi-exclamation-triangle"></i>
+                                    </button>
+                                    {% else %}
+                                    <button type="button" class="btn btn-sm btn-warning" 
+                                            title="Problema segnalato: {{ acquisto.problema_tipo|replace('_', ' ')|title }}. Clicca per risolvere" 
+                                            onclick="risolviProblema({{ acquisto.id }})">
+                                        <i class="bi bi-exclamation-triangle-fill"></i>
+                                    </button>
+                                    {% endif %}
+                                </div>
+                                {% endif %}
+                                
+                                <!-- Riga pulsanti Vendi -->
                                 <div class="btn-group mb-1" role="group" style="flex-wrap: wrap;">
                                     {% for prodotto in acquisto.prodotti %}
                                         {% if not prodotto.vendite %}
@@ -559,7 +587,7 @@
                     <div id="anteprima-calcoli" class="card border-info" style="display: none;">
                         <div class="card-body">
                             <h6 class="card-title text-info">
-                                <i class="bi bi-calculator"></i> Anteprima Marginalità
+                                <i class="bi bi-calculator"></i> Anteprima Marginalità 
                             </h6>
                             <div class="row text-center">
                                 <div class="col-md-3">
@@ -592,6 +620,60 @@
                 </button>
                 <button type="button" class="btn btn-success" onclick="salvaNuovaVendita()" id="btn-salva-vendita">
                     <i class="bi bi-check-circle"></i> Crea Vendita
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- NUOVO: Modal per segnalazione problema -->
+<div class="modal fade" id="modalSegnalaProblema" tabindex="-1" aria-labelledby="modalSegnalaProblemaLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title" id="modalSegnalaProblemaLabel">
+                    <i class="bi bi-exclamation-triangle"></i> Segnala Problema
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="formSegnalaProblema">
+                    <div class="mb-3">
+                        <label class="form-label">Acquisto:</label>
+                        <div class="form-control-plaintext bg-light p-2 rounded">
+                            <strong id="acquistoProblema">-</strong>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="problema_tipo" class="form-label">Tipo Problema *</label>
+                        <select id="problema_tipo" name="problema_tipo" class="form-select" required>
+                            <option value="">-- Seleziona tipo problema --</option>
+                            <option value="pacco_perso">Pacco Perso/Non Consegnato</option>
+                            <option value="prodotti_non_conformi">Prodotti Non Conformi</option>
+                            <option value="prodotti_danneggiati">Prodotti Danneggiati</option>
+                            <option value="ritardo_consegna">Ritardo Consegna Eccessivo</option>
+                            <option value="problema_venditore">Problema con Venditore</option>
+                            <option value="altro">Altro</option>
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="problema_descrizione" class="form-label">Descrizione Problema</label>
+                        <textarea id="problema_descrizione" name="problema_descrizione" 
+                                  class="form-control" rows="3" 
+                                  placeholder="Descrivi il problema in dettaglio (opzionale ma consigliato)"></textarea>
+                    </div>
+                    
+                    <input type="hidden" id="acquisto_id_problema" name="acquisto_id">
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                    <i class="bi bi-x-circle"></i> Annulla
+                </button>
+                <button type="button" class="btn btn-danger" onclick="salvaSegnalazioneProblema()">
+                    <i class="bi bi-exclamation-triangle"></i> Segnala Problema
                 </button>
             </div>
         </div>
@@ -809,6 +891,83 @@ async function salvaNuovaVendita() {
         // Riabilita pulsante
         btnSalva.disabled = false;
         btnSalva.innerHTML = '<i class="bi bi-check-circle"></i> Crea Vendita';
+    }
+}
+
+// NUOVE FUNZIONI per gestione problemi
+function segnalaProblema(acquistoId, acquistoNome) {
+    document.getElementById('acquisto_id_problema').value = acquistoId;
+    document.getElementById('acquistoProblema').textContent = acquistoNome;
+    
+    // Reset form
+    document.getElementById('formSegnalaProblema').reset();
+    document.getElementById('acquisto_id_problema').value = acquistoId;
+    
+    const modal = new bootstrap.Modal(document.getElementById('modalSegnalaProblema'));
+    modal.show();
+}
+
+function salvaSegnalazioneProblema() {
+    const form = document.getElementById('formSegnalaProblema');
+    
+    if (!form.checkValidity()) {
+        form.reportValidity();
+        return;
+    }
+    
+    const formData = {
+        acquisto_id: document.getElementById('acquisto_id_problema').value,
+        problema_tipo: document.getElementById('problema_tipo').value,
+        problema_descrizione: document.getElementById('problema_descrizione').value
+    };
+    
+    fetch('/acquisti/segnala-problema', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(formData)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            const modal = bootstrap.Modal.getInstance(document.getElementById('modalSegnalaProblema'));
+            modal.hide();
+            
+            showSuccessAlert(data.message);
+            setTimeout(() => location.reload(), 1500);
+        } else {
+            showErrorAlert(data.error);
+        }
+    })
+    .catch(error => {
+        console.error('Errore:', error);
+        showErrorAlert('Errore di connessione. Riprova.');
+    });
+}
+
+function risolviProblema(acquistoId) {
+    if (confirm('Contrassegnare questo problema come risolto? Il problema verrà rimosso.')) {
+        fetch('/acquisti/risolvi-problema', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ acquisto_id: acquistoId })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showSuccessAlert(data.message);
+                setTimeout(() => location.reload(), 1500);
+            } else {
+                showErrorAlert(data.error);
+            }
+        })
+        .catch(error => {
+            console.error('Errore:', error);
+            showErrorAlert('Errore di connessione. Riprova.');
+        });
     }
 }
 

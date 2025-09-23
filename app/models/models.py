@@ -17,7 +17,14 @@ class Acquisto(Base):
     data_pagamento = Column(Date, nullable=True)
     data_consegna = Column(Date, nullable=True)
     note = Column(Text, nullable=True)
-    acquirente = Column(String(100), default="Alessio")  # NUOVO CAMPO
+    acquirente = Column(String(100), default="Alessio")
+    
+    # NUOVI CAMPI per gestione problemi
+    problema_tipo = Column(String(50), nullable=True)  # 'pacco_perso', 'prodotti_non_conformi', etc.
+    problema_descrizione = Column(Text, nullable=True)
+    problema_data_segnalazione = Column(DateTime, nullable=True)
+    problema_segnalato = Column(Boolean, default=False, nullable=False)
+    
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
@@ -38,7 +45,7 @@ class Acquisto(Base):
     @property
     def prodotti_senza_seriali(self):
         """Numero di prodotti senza seriali"""
-        return len([p for p in self.prodotti if not p.seriale])
+        return len([p for p in self.prodotti if not p.seriale or p.seriale.strip() in ['', '???', 'N/A']])
     
     @property
     def completamente_venduto(self):
@@ -113,8 +120,12 @@ class Acquisto(Base):
     
     @property
     def problematico(self):
-        """True se l'acquisto ha problemi che richiedono attenzione"""
+        """True se l'acquisto ha problemi che richiedono attenzione (include problemi segnalati)"""
         problemi = []
+        
+        # Problema segnalato manualmente
+        if self.problema_segnalato:
+            problemi.append("problema_segnalato")
         
         # Non ancora arrivato
         if not self.data_consegna:
@@ -155,10 +166,15 @@ class Acquisto(Base):
     
     @property
     def problemi_list(self):
-        """Lista testuale dei problemi"""
+        """Lista testuale dei problemi (include problemi segnalati)"""
         problemi = []
         
-        if not self.data_consegna:
+        # Problemi segnalati manualmente
+        if self.problema_segnalato and self.problema_tipo:
+            problemi.append(self.problema_tipo.replace('_', ' ').title())
+        
+        # Problemi automatici
+        if not self.data_consegna and not self.problema_segnalato:
             problemi.append("Non arrivato")
         if self.prodotti_senza_seriali > 0:
             problemi.append(f"{self.prodotti_senza_seriali} senza seriali")
@@ -173,11 +189,23 @@ class Acquisto(Base):
     
     @property
     def urgenza_score(self):
-        """Score di urgenza 0-100"""
+        """Score di urgenza 0-100 (include problemi segnalati)"""
         score = 0
         
-        # Non arrivato
-        if not self.data_consegna:
+        # Problema segnalato manualmente - alta priorità
+        if self.problema_segnalato:
+            score += 50  # Base score alto per problemi segnalati
+            
+            # Score aggiuntivo per tipo problema
+            if self.problema_tipo in ['pacco_perso', 'prodotti_danneggiati']:
+                score += 30
+            elif self.problema_tipo in ['prodotti_non_conformi', 'problema_venditore']:
+                score += 20
+            elif self.problema_tipo == 'ritardo_consegna':
+                score += 15
+        
+        # Non arrivato (solo se non c'è problema segnalato)
+        if not self.data_consegna and not self.problema_segnalato:
             giorni_attesa = self.giorni_attesa or 0
             if giorni_attesa > 21:
                 score += 40
