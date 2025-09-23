@@ -23,7 +23,13 @@
                 </div>
 
                 <form method="POST" action="/acquisti/{{ acquisto.id }}/seriali">
-                    {% set prodotti_senza_seriale = acquisto.prodotti|selectattr("seriale", "none")|list %}
+                    {# FIX: Filtra correttamente i prodotti senza seriali validi #}
+                    {% set prodotti_senza_seriale = [] %}
+                    {% for prodotto in acquisto.prodotti %}
+                        {% if not prodotto.seriale or prodotto.seriale == "" or prodotto.seriale == "???" or prodotto.seriale == "N/A" %}
+                            {% set _ = prodotti_senza_seriale.append(prodotto) %}
+                        {% endif %}
+                    {% endfor %}
                     
                     {% if prodotti_senza_seriale %}
                     <h6 class="mb-3">Prodotti senza seriale ({{ prodotti_senza_seriale|length }})</h6>
@@ -37,6 +43,14 @@
                                     {% if prodotto.note_prodotto %}
                                         <small class="text-muted">{{ prodotto.note_prodotto }}</small>
                                     {% endif %}
+                                    <div class="small text-info mt-1">
+                                        ID Prodotto: {{ prodotto.id }}
+                                        {% if prodotto.seriale %}
+                                            - Seriale attuale: "{{ prodotto.seriale }}"
+                                        {% else %}
+                                            - Nessun seriale
+                                        {% endif %}
+                                    </div>
                                 </div>
                                 <div class="col-md-6">
                                     <input type="hidden" name="prodotti[{{ loop.index0 }}][id]" value="{{ prodotto.id }}">
@@ -45,6 +59,7 @@
                                         <input type="text" class="form-control" 
                                                name="prodotti[{{ loop.index0 }}][seriale]" 
                                                placeholder="Inserisci seriale"
+                                               value="{{ prodotto.seriale if prodotto.seriale and prodotto.seriale not in ['???', 'N/A'] else '' }}"
                                                autocomplete="off">
                                     </div>
                                 </div>
@@ -55,11 +70,42 @@
                     {% else %}
                     <div class="alert alert-success">
                         <i class="bi bi-check-circle"></i> Tutti i prodotti di questo acquisto hanno già un seriale assegnato!
+                        
+                        {# DEBUG: Mostra informazioni sui prodotti per debug #}
+                        {% if acquisto.prodotti %}
+                        <div class="mt-3">
+                            <h6>Debug - Stato prodotti:</h6>
+                            <div class="small">
+                                {% for prodotto in acquisto.prodotti %}
+                                <div class="mb-1">
+                                    <strong>ID {{ prodotto.id }}:</strong> 
+                                    {{ prodotto.prodotto_descrizione[:50] }}{% if prodotto.prodotto_descrizione|length > 50 %}...{% endif %}
+                                    - Seriale: 
+                                    {% if prodotto.seriale %}
+                                        "<span class="text-success">{{ prodotto.seriale }}</span>"
+                                    {% else %}
+                                        <span class="text-warning">NULL/VUOTO</span>
+                                    {% endif %}
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% else %}
+                        <div class="mt-3">
+                            <span class="text-warning">Nessun prodotto trovato in questo acquisto!</span>
+                        </div>
+                        {% endif %}
                     </div>
                     {% endif %}
 
-                    <!-- Prodotti con seriale (solo visualizzazione) -->
-                    {% set prodotti_con_seriale = acquisto.prodotti|selectattr("seriale")|list %}
+                    <!-- Prodotti con seriale già assegnato (solo visualizzazione) -->
+                    {% set prodotti_con_seriale = [] %}
+                    {% for prodotto in acquisto.prodotti %}
+                        {% if prodotto.seriale and prodotto.seriale != "" and prodotto.seriale != "???" and prodotto.seriale != "N/A" %}
+                            {% set _ = prodotti_con_seriale.append(prodotto) %}
+                        {% endif %}
+                    {% endfor %}
+                    
                     {% if prodotti_con_seriale %}
                     <h6 class="mb-3 mt-4">Prodotti con seriale già assegnato ({{ prodotti_con_seriale|length }})</h6>
                     
