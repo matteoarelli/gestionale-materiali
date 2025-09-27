@@ -374,7 +374,7 @@ async def salva_seriali_multipli(request: Request, db: Session = Depends(get_db)
             continue
             
         try:
-            # Verifica che il seriale non esista già   
+            # Verifica che il seriale non esista già    
             if db.query(Prodotto).filter(Prodotto.seriale == nuovo_seriale).first():
                 errori.append(f"Seriale {nuovo_seriale} già esistente nel database")
                 seriali_duplicati += 1
@@ -494,7 +494,7 @@ async def problemi(request: Request, db: Session = Depends(get_db)):
                 'margine_percentuale': margine_percentuale
             })
     
-    # Ordina per gravità
+    # Ordina per gravità 
     vendite_lente.sort(key=lambda x: x['giorni_stock'], reverse=True)
     margini_critici.sort(key=lambda x: x['margine_percentuale'])
     
@@ -1093,58 +1093,119 @@ async def modifica_acquisto(acquisto_id: int, request: Request, db: Session = De
         if not acquisto:
             raise HTTPException(status_code=404, detail="Acquisto non trovato")
         
-        # Parsea i seriali dal formato: prodotti[0][id], prodotti[0][seriale]
-        seriali_data = {}
+        # Aggiorna dati acquisto
+        acquisto.id_acquisto_univoco = form_data.get("id_acquisto_univoco")
+        acquisto.dove_acquistato = form_data.get("dove_acquistato", "")
+        acquisto.venditore = form_data.get("venditore", "")
+        acquisto.costo_acquisto = float(form_data.get("costo_acquisto", 0))
+        acquisto.costi_accessori = float(form_data.get("costi_accessori", 0))
+        acquisto.data_pagamento = datetime.strptime(form_data.get("data_pagamento"), "%Y-%m-%d").date() if form_data.get("data_pagamento") else None
+        acquisto.data_consegna = datetime.strptime(form_data.get("data_consegna"), "%Y-%m-%d").date() if form_data.get("data_consegna") else None
+        acquisto.note = form_data.get("note")
+        acquisto.acquirente = form_data.get("acquirente", acquisto.acquirente or "Alessio")  # Mantieni esistente se non specificato
+        
+        # Aggiorna prodotti esistenti
+        prodotti_data = {}
         for key, value in form_data.items():
-            if key.startswith('prodotti[') and value.strip():
+            if key.startswith('prodotti['):
                 import re
                 match = re.match(r'prodotti\[(\d+)\]\[(\w+)\]', key)
                 if match:
                     index = int(match.group(1))
                     campo = match.group(2)
                     
-                    if index not in seriali_data:
-                        seriali_data[index] = {}
-                    seriali_data[index][campo] = value.strip()
+                    if index not in prodotti_data:
+                        prodotti_data[index] = {}
+                    prodotti_data[index][campo] = value.strip() if value else None
         
-        seriali_aggiornati = 0
-        errori = []
+        # Aggiorna prodotti esistenti e crea nuovi
+        prodotti_esistenti = {p.id: p for p in acquisto.prodotti}
+        prodotti_nel_form = set()
         
-        for index, dati in seriali_data.items():
-            prodotto_id = dati.get('id')
-            nuovo_seriale = dati.get('seriale')
+        for index, dati_prodotto in prodotti_data.items():
+            prodotto_id = dati_prodotto.get("id")
             
-            if not prodotto_id or not nuovo_seriale:
-                continue
-            
-            try:
-                # Verifica seriale univoco
-                if db.query(Prodotto).filter(
-                    Prodotto.seriale == nuovo_seriale,
-                    Prodotto.id != int(prodotto_id)
-                ).first():
-                    errori.append(f"Seriale {nuovo_seriale} già esistente")
-                    continue
+            if prodotto_id and int(prodotto_id) in prodotti_esistenti:
+                # Aggiorna prodotto esistente
+                prodotto = prodotti_esistenti[int(prodotto_id)]
+                prodotti_nel_form.add(int(prodotto_id))
                 
-                # Aggiorna il prodotto
-                prodotto = db.query(Prodotto).filter(Prodotto.id == int(prodotto_id)).first()
-                if prodotto and not prodotto.seriale:  # Solo se non ha già un seriale
-                    prodotto.seriale = nuovo_seriale
-                    seriali_aggiornati += 1
-                    
-            except Exception as e:
-                errori.append(f"Errore prodotto ID {prodotto_id}: {str(e)}")
+                # Non aggiornare prodotti già venduti
+                if not prodotto.vendite:
+                    prodotto.seriale = dati_prodotto.get("seriale")
+                    prodotto.prodotto_descrizione = dati_prodotto.get("descrizione", "")
+                    prodotto.note_prodotto = dati_prodotto.get("note")
+            elif dati_prodotto.get("descrizione"):
+                # Nuovo prodotto (solo se ha descrizione)
+                nuovo_prodotto = Prodotto(
+                    acquisto_id=acquisto.id,
+                    seriale=dati_prodotto.get("seriale"),
+                    prodotto_descrizione=dati_prodotto.get("descrizione", ""),
+                    note_prodotto=dati_prodotto.get("note")
+                )
+                db.add(nuovo_prodotto)
+        
+        # ELIMINA prodotti che non sono più nel form (solo se non venduti)
+        for prodotto_id, prodotto in prodotti_esistenti.items():
+            if prodotto_id not in prodotti_nel_form:
+                # Elimina solo se non ha vendite
+                if not prodotto.vendite:
+                    db.delete(prodotto)
+                else:
+                    # Log warning - prodotto venduto non può essere eliminato
+                    print(f"WARNING: Tentativo di eliminare prodotto venduto {prodotto_id}")
         
         db.commit()
         
-        if seriali_aggiornati > 0:
-            return RedirectResponse(url=f"/acquisti?seriali_inserted={seriali_aggiornati}", status_code=303)
-        else:
-            return RedirectResponse(url=f"/acquisti?errori={len(errori)}", status_code=303)
+        return RedirectResponse(url="/acquisti?modificato=success", status_code=303)
         
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"Errore nel salvataggio: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Errore nella modifica: {str(e)}")
+
+@app.delete("/acquisti/{acquisto_id}")
+async def elimina_acquisto(acquisto_id: int, db: Session = Depends(get_db)):
+    """Elimina acquisto (solo se non ha vendite)"""
+    try:
+        acquisto = db.query(Acquisto).options(joinedload(Acquisto.prodotti).joinedload(Prodotto.vendite)).filter(Acquisto.id == acquisto_id).first()
+        
+        if not acquisto:
+            return {"success": False, "error": "Acquisto non trovato"}
+        
+        # Verifica che nessun prodotto sia stato venduto
+        prodotti_venduti = [p for p in acquisto.prodotti if p.vendite]
+        if prodotti_venduti:
+            return {"success": False, "error": f"Impossibile eliminare: {len(prodotti_venduti)} prodotti già venduti"}
+        
+        # Elimina prodotti e poi acquisto
+        for prodotto in acquisto.prodotti:
+            db.delete(prodotto)
+        db.delete(acquisto)
+        
+        db.commit()
+        return {"success": True, "message": "Acquisto eliminato con successo"}
+        
+    except Exception as e:
+        db.rollback()
+        return {"success": False, "error": f"Errore: {str(e)}"}
+
+@app.post("/acquisti/{acquisto_id}/segna-arrivato")
+async def segna_acquisto_arrivato(acquisto_id: int, db: Session = Depends(get_db)):
+    """Segna acquisto come arrivato oggi"""
+    try:
+        acquisto = db.query(Acquisto).filter(Acquisto.id == acquisto_id).first()
+        
+        if not acquisto:
+            return {"success": False, "error": "Acquisto non trovato"}
+        
+        acquisto.data_consegna = date.today()
+        db.commit()
+        
+        return {"success": True, "message": "Acquisto segnato come arrivato"}
+        
+    except Exception as e:
+        db.rollback()
+        return {"success": False, "error": f"Errore: {str(e)}"}
 
 @app.get("/admin/add-acquirente-field")
 async def add_acquirente_field(db: Session = Depends(get_db)):
@@ -1345,128 +1406,6 @@ async def segna_tutti_non_arrivati_come_arrivati(db: Session = Depends(get_db)):
             "error": f"Errore: {str(e)}"
         }
 
-# Route semplificata senza gestione problemi
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8000))
-    uvicorn.run("app.main:app", host="0.0.0.0", port=port, reload=True)
-        if not acquisto:
-            raise HTTPException(status_code=404, detail="Acquisto non trovato")
-        
-        # Aggiorna dati acquisto
-        acquisto.id_acquisto_univoco = form_data.get("id_acquisto_univoco")
-        acquisto.dove_acquistato = form_data.get("dove_acquistato", "")
-        acquisto.venditore = form_data.get("venditore", "")
-        acquisto.costo_acquisto = float(form_data.get("costo_acquisto", 0))
-        acquisto.costi_accessori = float(form_data.get("costi_accessori", 0))
-        acquisto.data_pagamento = datetime.strptime(form_data.get("data_pagamento"), "%Y-%m-%d").date() if form_data.get("data_pagamento") else None
-        acquisto.data_consegna = datetime.strptime(form_data.get("data_consegna"), "%Y-%m-%d").date() if form_data.get("data_consegna") else None
-        acquisto.note = form_data.get("note")
-        acquisto.acquirente = form_data.get("acquirente", acquisto.acquirente or "Alessio")  # Mantieni esistente se non specificato
-        
-        # Aggiorna prodotti esistenti
-        prodotti_data = {}
-        for key, value in form_data.items():
-            if key.startswith('prodotti['):
-                import re
-                match = re.match(r'prodotti\[(\d+)\]\[(\w+)\]', key)
-                if match:
-                    index = int(match.group(1))
-                    campo = match.group(2)
-                    
-                    if index not in prodotti_data:
-                        prodotti_data[index] = {}
-                    prodotti_data[index][campo] = value.strip() if value else None
-        
-        # Aggiorna prodotti esistenti e crea nuovi
-        prodotti_esistenti = {p.id: p for p in acquisto.prodotti}
-        prodotti_nel_form = set()
-        
-        for index, dati_prodotto in prodotti_data.items():
-            prodotto_id = dati_prodotto.get("id")
-            
-            if prodotto_id and int(prodotto_id) in prodotti_esistenti:
-                # Aggiorna prodotto esistente
-                prodotto = prodotti_esistenti[int(prodotto_id)]
-                prodotti_nel_form.add(int(prodotto_id))
-                
-                # Non aggiornare prodotti già venduti
-                if not prodotto.vendite:
-                    prodotto.seriale = dati_prodotto.get("seriale")
-                    prodotto.prodotto_descrizione = dati_prodotto.get("descrizione", "")
-                    prodotto.note_prodotto = dati_prodotto.get("note")
-            elif dati_prodotto.get("descrizione"):
-                # Nuovo prodotto (solo se ha descrizione)
-                nuovo_prodotto = Prodotto(
-                    acquisto_id=acquisto.id,
-                    seriale=dati_prodotto.get("seriale"),
-                    prodotto_descrizione=dati_prodotto.get("descrizione", ""),
-                    note_prodotto=dati_prodotto.get("note")
-                )
-                db.add(nuovo_prodotto)
-        
-        # ELIMINA prodotti che non sono più nel form (solo se non venduti)
-        for prodotto_id, prodotto in prodotti_esistenti.items():
-            if prodotto_id not in prodotti_nel_form:
-                # Elimina solo se non ha vendite
-                if not prodotto.vendite:
-                    db.delete(prodotto)
-                else:
-                    # Log warning - prodotto venduto non può essere eliminato
-                    print(f"WARNING: Tentativo di eliminare prodotto venduto {prodotto_id}")
-        
-        
-        db.commit()
-        
-        return RedirectResponse(url="/acquisti?modificato=success", status_code=303)
-        
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=f"Errore nella modifica: {str(e)}")
-
-@app.delete("/acquisti/{acquisto_id}")
-async def elimina_acquisto(acquisto_id: int, db: Session = Depends(get_db)):
-    """Elimina acquisto (solo se non ha vendite)"""
-    try:
-        acquisto = db.query(Acquisto).options(joinedload(Acquisto.prodotti).joinedload(Prodotto.vendite)).filter(Acquisto.id == acquisto_id).first()
-        
-        if not acquisto:
-            return {"success": False, "error": "Acquisto non trovato"}
-        
-        # Verifica che nessun prodotto sia stato venduto
-        prodotti_venduti = [p for p in acquisto.prodotti if p.vendite]
-        if prodotti_venduti:
-            return {"success": False, "error": f"Impossibile eliminare: {len(prodotti_venduti)} prodotti già venduti"}
-        
-        # Elimina prodotti e poi acquisto
-        for prodotto in acquisto.prodotti:
-            db.delete(prodotto)
-        db.delete(acquisto)
-        
-        db.commit()
-        return {"success": True, "message": "Acquisto eliminato con successo"}
-        
-    except Exception as e:
-        db.rollback()
-        return {"success": False, "error": f"Errore: {str(e)}"}
-
-@app.post("/acquisti/{acquisto_id}/segna-arrivato")
-async def segna_acquisto_arrivato(acquisto_id: int, db: Session = Depends(get_db)):
-    """Segna acquisto come arrivato oggi"""
-    try:
-        acquisto = db.query(Acquisto).filter(Acquisto.id == acquisto_id).first()
-        
-        if not acquisto:
-            return {"success": False, "error": "Acquisto non trovato"}
-        
-        acquisto.data_consegna = date.today()
-        db.commit()
-        
-        return {"success": True, "message": "Acquisto segnato come arrivato"}
-        
-    except Exception as e:
-        db.rollback()
-        return {"success": False, "error": f"Errore: {str(e)}"}
-
 @app.get("/favicon.ico")
 async def favicon():
     """Favicon placeholder"""
@@ -1548,3 +1487,62 @@ async def salva_seriali_acquisto(acquisto_id: int, request: Request, db: Session
     
     try:
         acquisto = db.query(Acquisto).filter(Acquisto.id == acquisto_id).first()
+        if not acquisto:
+            raise HTTPException(status_code=404, detail="Acquisto non trovato")
+        
+        # Parsea i seriali dal formato: prodotti[0][id], prodotti[0][seriale]
+        seriali_data = {}
+        for key, value in form_data.items():
+            if key.startswith('prodotti[') and value.strip():
+                import re
+                match = re.match(r'prodotti\[(\d+)\]\[(\w+)\]', key)
+                if match:
+                    index = int(match.group(1))
+                    campo = match.group(2)
+                    
+                    if index not in seriali_data:
+                        seriali_data[index] = {}
+                    seriali_data[index][campo] = value.strip()
+        
+        seriali_aggiornati = 0
+        errori = []
+        
+        for index, dati in seriali_data.items():
+            prodotto_id = dati.get('id')
+            nuovo_seriale = dati.get('seriale')
+            
+            if not prodotto_id or not nuovo_seriale:
+                continue
+            
+            try:
+                # Verifica seriale univoco
+                if db.query(Prodotto).filter(
+                    Prodotto.seriale == nuovo_seriale,
+                    Prodotto.id != int(prodotto_id)
+                ).first():
+                    errori.append(f"Seriale {nuovo_seriale} già esistente")
+                    continue
+                
+                # Aggiorna il prodotto
+                prodotto = db.query(Prodotto).filter(Prodotto.id == int(prodotto_id)).first()
+                if prodotto and not prodotto.seriale:  # Solo se non ha già un seriale
+                    prodotto.seriale = nuovo_seriale
+                    seriali_aggiornati += 1
+                    
+            except Exception as e:
+                errori.append(f"Errore prodotto ID {prodotto_id}: {str(e)}")
+        
+        db.commit()
+        
+        if seriali_aggiornati > 0:
+            return RedirectResponse(url=f"/acquisti?seriali_inserted={seriali_aggiornati}", status_code=303)
+        else:
+            return RedirectResponse(url=f"/acquisti?errori={len(errori)}", status_code=303)
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Errore nel salvataggio: {str(e)}")
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run("app.main:app", host="0.0.0.0", port=port, reload=True)
