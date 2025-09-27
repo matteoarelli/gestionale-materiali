@@ -953,4 +953,598 @@ async def diagnostica_sincronizzazione(request: Request, db: Session = Depends(g
         "prodotti_senza_seriali": prodotti_senza_seriali,
         "prodotti_con_seriali_no_vendite": prodotti_con_seriali_no_vendite,
         "seriali_duplicati": seriali_duplicati,
-        "prodotti_venduti_senza_seriali": prodotti_venduti_
+        "prodotti_venduti_senza_seriali": prodotti_venduti_senza_seriali,
+        "seriali_problematici": prodotti_seriali_strani,
+        "acquisti_senza_prodotti": acquisti_senza_prodotti,
+        "vendite_orfane": vendite_orfane,
+        "pattern_seriali": pattern_seriali,
+        "problemi_count": {
+            "senza_seriali": len(prodotti_senza_seriali),
+            "con_seriali_no_vendite": len(prodotti_con_seriali_no_vendite),
+            "seriali_duplicati": len(seriali_duplicati),
+            "seriali_strani": len(prodotti_seriali_strani),
+            "acquisti_vuoti": len(acquisti_senza_prodotti),
+            "vendite_orfane": len(vendite_orfane)
+        }
+    }
+    
+    return templates.TemplateResponse("diagnostica.html", {
+        "request": request,
+        "diagnostica": diagnostica_data
+    })
+
+@app.get("/acquisti/nuovo", response_class=HTMLResponse)
+async def nuovo_acquisto_form(request: Request):
+    """Form per creare nuovo acquisto"""
+    return templates.TemplateResponse("nuovo_acquisto.html", {
+        "request": request
+    })
+
+@app.post("/acquisti/nuovo")
+async def crea_nuovo_acquisto(request: Request, db: Session = Depends(get_db)):
+    """Crea nuovo acquisto"""
+    form_data = await request.form()
+    
+    try:
+        # Crea nuovo acquisto
+        nuovo_acquisto = Acquisto(
+            id_acquisto_univoco=form_data.get("id_acquisto_univoco"),
+            dove_acquistato=form_data.get("dove_acquistato", ""),
+            venditore=form_data.get("venditore", ""),
+            costo_acquisto=float(form_data.get("costo_acquisto", 0)),
+            costi_accessori=float(form_data.get("costi_accessori", 0)),
+            data_pagamento=datetime.strptime(form_data.get("data_pagamento"), "%Y-%m-%d").date() if form_data.get("data_pagamento") else None,
+            data_consegna=datetime.strptime(form_data.get("data_consegna"), "%Y-%m-%d").date() if form_data.get("data_consegna") else None,
+            note=form_data.get("note"),
+            acquirente=form_data.get("acquirente", "Alessio"),  # Default Alessio
+            created_at=datetime.now()
+        )
+        
+        db.add(nuovo_acquisto)
+        db.flush()
+        
+        # Parsea i prodotti dal formato del template: prodotti[0][seriale], prodotti[0][descrizione], etc.
+        prodotti_data = {}
+        for key, value in form_data.items():
+            if key.startswith('prodotti['):
+                # Estrai index e campo da prodotti[0][seriale] -> index=0, campo=seriale
+                import re
+                match = re.match(r'prodotti\[(\d+)\]\[(\w+)\]', key)
+                if match:
+                    index = int(match.group(1))
+                    campo = match.group(2)
+                    
+                    if index not in prodotti_data:
+                        prodotti_data[index] = {}
+                    
+                    # Gestisci il checkbox is_fotorip
+                    if campo == 'is_fotorip':
+                        prodotti_data[index][campo] = True  # Se presente nel form è checked
+                    else:
+                        prodotti_data[index][campo] = value.strip() if value else None
+
+        # Crea i prodotti
+        for index, dati_prodotto in prodotti_data.items():
+            if dati_prodotto.get("descrizione"):  # Solo se ha descrizione (campo obbligatorio)
+                is_fotorip = dati_prodotto.get("is_fotorip", False)
+                
+                # Per fotorip, genera seriale automatico se non fornito
+                seriale = dati_prodotto.get("seriale")
+                if is_fotorip and not seriale:
+                    # Genera seriale automatico per fotorip
+                    import time
+                    seriale = f"FOTORIP_{int(time.time())}_{index}"
+                
+                prodotto = Prodotto(
+                    acquisto_id=nuovo_acquisto.id,
+                    seriale=seriale,
+                    prodotto_descrizione=dati_prodotto.get("descrizione", ""),
+                    note_prodotto=dati_prodotto.get("note")
+                )
+                db.add(prodotto)
+                
+                # Se è fotorip, crea subito una vendita fittizia
+                if is_fotorip:
+                    db.flush()  # Per ottenere l'ID del prodotto
+                    
+                    costo_totale_acquisto = nuovo_acquisto.costo_acquisto + (nuovo_acquisto.costi_accessori or 0)
+                    
+                    vendita_fotorip = Vendita(
+                        prodotto_id=prodotto.id,
+                        data_vendita=nuovo_acquisto.data_consegna if nuovo_acquisto.data_consegna else date.today(),
+                        canale_vendita="RIPARAZIONI",
+                        prezzo_vendita=costo_totale_acquisto,
+                        commissioni=0.0,
+                        synced_from_invoicex=False,
+                        invoicex_id=f"FOTORIP_{prodotto.id}",
+                        note_vendita="Prodotto utilizzato per riparazioni - margine neutro - creato manualmente"
+                    )
+                    
+                    db.add(vendita_fotorip)
+        
+        db.commit()
+        
+        return RedirectResponse(url="/acquisti?nuovo=success", status_code=303)
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Errore nella creazione: {str(e)}")
+
+@app.get("/acquisti/{acquisto_id}/modifica", response_class=HTMLResponse)
+async def modifica_acquisto_form(acquisto_id: int, request: Request, db: Session = Depends(get_db)):
+    """Form per modificare acquisto esistente"""
+    acquisto = db.query(Acquisto).options(joinedload(Acquisto.prodotti)).filter(Acquisto.id == acquisto_id).first()
+    
+    if not acquisto:
+        raise HTTPException(status_code=404, detail="Acquisto non trovato")
+    
+    return templates.TemplateResponse("modifica_acquisto.html", {
+        "request": request,
+        "acquisto": acquisto
+    })
+
+@app.post("/acquisti/{acquisto_id}/modifica")
+async def modifica_acquisto(acquisto_id: int, request: Request, db: Session = Depends(get_db)):
+    """Aggiorna acquisto esistente"""
+    form_data = await request.form()
+    
+    try:
+        acquisto = db.query(Acquisto).filter(Acquisto.id == acquisto_id).first()
+        if not acquisto:
+            raise HTTPException(status_code=404, detail="Acquisto non trovato")
+        
+        # Parsea i seriali dal formato: prodotti[0][id], prodotti[0][seriale]
+        seriali_data = {}
+        for key, value in form_data.items():
+            if key.startswith('prodotti[') and value.strip():
+                import re
+                match = re.match(r'prodotti\[(\d+)\]\[(\w+)\]', key)
+                if match:
+                    index = int(match.group(1))
+                    campo = match.group(2)
+                    
+                    if index not in seriali_data:
+                        seriali_data[index] = {}
+                    seriali_data[index][campo] = value.strip()
+        
+        seriali_aggiornati = 0
+        errori = []
+        
+        for index, dati in seriali_data.items():
+            prodotto_id = dati.get('id')
+            nuovo_seriale = dati.get('seriale')
+            
+            if not prodotto_id or not nuovo_seriale:
+                continue
+            
+            try:
+                # Verifica seriale univoco
+                if db.query(Prodotto).filter(
+                    Prodotto.seriale == nuovo_seriale,
+                    Prodotto.id != int(prodotto_id)
+                ).first():
+                    errori.append(f"Seriale {nuovo_seriale} già esistente")
+                    continue
+                
+                # Aggiorna il prodotto
+                prodotto = db.query(Prodotto).filter(Prodotto.id == int(prodotto_id)).first()
+                if prodotto and not prodotto.seriale:  # Solo se non ha già un seriale
+                    prodotto.seriale = nuovo_seriale
+                    seriali_aggiornati += 1
+                    
+            except Exception as e:
+                errori.append(f"Errore prodotto ID {prodotto_id}: {str(e)}")
+        
+        db.commit()
+        
+        if seriali_aggiornati > 0:
+            return RedirectResponse(url=f"/acquisti?seriali_inserted={seriali_aggiornati}", status_code=303)
+        else:
+            return RedirectResponse(url=f"/acquisti?errori={len(errori)}", status_code=303)
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Errore nel salvataggio: {str(e)}")
+
+@app.get("/admin/add-acquirente-field")
+async def add_acquirente_field(db: Session = Depends(get_db)):
+    """Aggiunge il campo acquirente e imposta tutti gli esistenti come 'Alessio'"""
+    try:
+        from sqlalchemy import text
+        
+        # 1. Aggiungi colonna (se non esiste già)
+        try:
+            db.execute(text("ALTER TABLE acquisti ADD COLUMN acquirente VARCHAR(100) DEFAULT 'Alessio'"))
+        except Exception as e:
+            if "already exists" not in str(e).lower() and "duplicate column" not in str(e).lower():
+                raise e
+        
+        # 2. Aggiorna tutti gli acquisti esistenti
+        result = db.execute(text("UPDATE acquisti SET acquirente = 'Alessio' WHERE acquirente IS NULL"))
+        
+        db.commit()
+        
+        return {
+            "success": True, 
+            "message": f"Campo acquirente aggiunto. {result.rowcount} acquisti assegnati ad Alessio"
+        }
+        
+    except Exception as e:
+        db.rollback()
+        return {"success": False, "error": str(e)}
+
+# NUOVA PAGINA: Acquisti non arrivati
+@app.get("/acquisti-non-arrivati", response_class=HTMLResponse)
+async def acquisti_non_arrivati(request: Request, db: Session = Depends(get_db)):
+    """Pagina dedicata agli acquisti non ancora arrivati"""
+    
+    # Parametri di filtro dalla query string
+    filtro_stato = request.query_params.get("filtro_stato", "tutti")
+    filtro_acquirente = request.query_params.get("filtro_acquirente", "tutti")
+    ordinamento = request.query_params.get("ordinamento", "attesa_desc")
+    cerca = request.query_params.get("cerca", "")
+    
+    # Query base per acquisti non arrivati
+    query = db.query(Acquisto).filter(
+        Acquisto.data_consegna.is_(None)
+    ).options(
+        joinedload(Acquisto.prodotti).joinedload(Prodotto.vendite)
+    )
+    
+    # Filtro per acquirente
+    acquirenti_disponibili = []
+    if filtro_acquirente and filtro_acquirente != "tutti":
+        try:
+            query = query.filter(Acquisto.acquirente == filtro_acquirente)
+        except AttributeError:
+            filtro_acquirente = "tutti"
+    
+    # Ottieni lista acquirenti per dropdown
+    try:
+        acquirenti_raw = db.query(Acquisto.acquirente).distinct().filter(
+            Acquisto.acquirente.isnot(None),
+            Acquisto.data_consegna.is_(None)  # Solo acquisti non arrivati
+        ).all()
+        acquirenti_disponibili = sorted([a[0] for a in acquirenti_raw if a[0]])
+    except AttributeError:
+        acquirenti_disponibili = ["Alessio"]
+    
+    # Filtro ricerca
+    if cerca:
+        query = query.filter(
+            or_(
+                Acquisto.id_acquisto_univoco.ilike(f"%{cerca}%"),
+                Acquisto.venditore.ilike(f"%{cerca}%"),
+                Acquisto.dove_acquistato.ilike(f"%{cerca}%")
+            )
+        )
+    
+    # Applica filtri di stato specifici per non arrivati
+    if filtro_stato == "normali":
+        # Attesa normale <= 7 giorni
+        data_limite = date.today() - timedelta(days=7)
+        query = query.filter(
+            or_(
+                Acquisto.data_pagamento.is_(None),
+                Acquisto.data_pagamento >= data_limite
+            )
+        )
+    elif filtro_stato == "ritardo":
+        # In ritardo > 7 giorni
+        data_limite = date.today() - timedelta(days=7)
+        query = query.filter(
+            and_(
+                Acquisto.data_pagamento.isnot(None),
+                Acquisto.data_pagamento < data_limite
+            )
+        )
+    elif filtro_stato == "critico":
+        # Ritardo critico > 21 giorni
+        data_limite = date.today() - timedelta(days=21)
+        query = query.filter(
+            and_(
+                Acquisto.data_pagamento.isnot(None),
+                Acquisto.data_pagamento < data_limite
+            )
+        )
+    
+    # Applica ordinamento
+    if ordinamento == "attesa_asc":
+        query = query.order_by(
+            Acquisto.data_pagamento.asc().nulls_last(),
+            Acquisto.created_at.asc()
+        )
+    elif ordinamento == "data_desc":
+        query = query.order_by(
+            Acquisto.data_pagamento.desc().nulls_last(),
+            Acquisto.created_at.desc()
+        )
+    elif ordinamento == "data_asc":
+        query = query.order_by(
+            Acquisto.data_pagamento.asc().nulls_last(),
+            Acquisto.created_at.asc()
+        )
+    elif ordinamento == "costo_desc":
+        query = query.order_by(
+            (Acquisto.costo_acquisto + func.coalesce(Acquisto.costi_accessori, 0)).desc()
+        )
+    elif ordinamento == "problemi_desc":
+        query = query.order_by(
+            Acquisto.problema_segnalato.desc().nulls_last(),
+            Acquisto.created_at.desc()
+        )
+    else:  # attesa_desc (default)
+        query = query.order_by(
+            Acquisto.data_pagamento.asc().nulls_first(),
+            Acquisto.created_at.asc()
+        )
+    
+    # Esegui query
+    acquisti_non_arrivati = query.all()
+    
+    # Calcola statistiche
+    acquisti_normali = []
+    acquisti_ritardo = []
+    investimento_totale = 0
+    prodotti_totali = 0
+    
+    for acquisto in acquisti_non_arrivati:
+        giorni_attesa = acquisto.giorni_attesa or 0
+        investimento_totale += acquisto.costo_totale
+        prodotti_totali += acquisto.numero_prodotti
+        
+        # Classifica per ritardo
+        if giorni_attesa <= 7:
+            acquisti_normali.append(acquisto)
+        else:
+            acquisti_ritardo.append(acquisto)
+    
+    # Filtra risultati per i filtri applicati
+    acquisti_filtered = acquisti_non_arrivati
+    
+    return templates.TemplateResponse("acquisti_non_arrivati.html", {
+        "request": request,
+        "acquisti_non_arrivati": acquisti_non_arrivati,
+        "acquisti_filtered": acquisti_filtered,
+        "acquisti_normali": acquisti_normali,
+        "acquisti_ritardo": acquisti_ritardo,
+        "investimento_totale": investimento_totale,
+        "prodotti_totali": prodotti_totali,
+        "filtro_stato": filtro_stato,
+        "filtro_acquirente": filtro_acquirente,
+        "acquirenti_disponibili": acquirenti_disponibili,
+        "ordinamento": ordinamento,
+        "cerca": cerca
+    })
+
+@app.post("/acquisti-non-arrivati/segna-tutti-arrivati")
+async def segna_tutti_non_arrivati_come_arrivati(db: Session = Depends(get_db)):
+    """Segna tutti gli acquisti non arrivati come arrivati oggi"""
+    
+    try:
+        acquisti_non_arrivati = db.query(Acquisto).filter(
+            Acquisto.data_consegna.is_(None)
+        ).all()
+        
+        count = 0
+        for acquisto in acquisti_non_arrivati:
+            acquisto.data_consegna = date.today()
+            count += 1
+        
+        db.commit()
+        
+        return {
+            "success": True,
+            "message": f"Segnati {count} acquisti come arrivati oggi"
+        }
+        
+    except Exception as e:
+        db.rollback()
+        return {
+            "success": False,
+            "error": f"Errore: {str(e)}"
+        }
+
+# Route semplificata senza gestione problemi
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run("app.main:app", host="0.0.0.0", port=port, reload=True)
+        if not acquisto:
+            raise HTTPException(status_code=404, detail="Acquisto non trovato")
+        
+        # Aggiorna dati acquisto
+        acquisto.id_acquisto_univoco = form_data.get("id_acquisto_univoco")
+        acquisto.dove_acquistato = form_data.get("dove_acquistato", "")
+        acquisto.venditore = form_data.get("venditore", "")
+        acquisto.costo_acquisto = float(form_data.get("costo_acquisto", 0))
+        acquisto.costi_accessori = float(form_data.get("costi_accessori", 0))
+        acquisto.data_pagamento = datetime.strptime(form_data.get("data_pagamento"), "%Y-%m-%d").date() if form_data.get("data_pagamento") else None
+        acquisto.data_consegna = datetime.strptime(form_data.get("data_consegna"), "%Y-%m-%d").date() if form_data.get("data_consegna") else None
+        acquisto.note = form_data.get("note")
+        acquisto.acquirente = form_data.get("acquirente", acquisto.acquirente or "Alessio")  # Mantieni esistente se non specificato
+        
+        # Aggiorna prodotti esistenti
+        prodotti_data = {}
+        for key, value in form_data.items():
+            if key.startswith('prodotti['):
+                import re
+                match = re.match(r'prodotti\[(\d+)\]\[(\w+)\]', key)
+                if match:
+                    index = int(match.group(1))
+                    campo = match.group(2)
+                    
+                    if index not in prodotti_data:
+                        prodotti_data[index] = {}
+                    prodotti_data[index][campo] = value.strip() if value else None
+        
+        # Aggiorna prodotti esistenti e crea nuovi
+        prodotti_esistenti = {p.id: p for p in acquisto.prodotti}
+        prodotti_nel_form = set()
+        
+        for index, dati_prodotto in prodotti_data.items():
+            prodotto_id = dati_prodotto.get("id")
+            
+            if prodotto_id and int(prodotto_id) in prodotti_esistenti:
+                # Aggiorna prodotto esistente
+                prodotto = prodotti_esistenti[int(prodotto_id)]
+                prodotti_nel_form.add(int(prodotto_id))
+                
+                # Non aggiornare prodotti già venduti
+                if not prodotto.vendite:
+                    prodotto.seriale = dati_prodotto.get("seriale")
+                    prodotto.prodotto_descrizione = dati_prodotto.get("descrizione", "")
+                    prodotto.note_prodotto = dati_prodotto.get("note")
+            elif dati_prodotto.get("descrizione"):
+                # Nuovo prodotto (solo se ha descrizione)
+                nuovo_prodotto = Prodotto(
+                    acquisto_id=acquisto.id,
+                    seriale=dati_prodotto.get("seriale"),
+                    prodotto_descrizione=dati_prodotto.get("descrizione", ""),
+                    note_prodotto=dati_prodotto.get("note")
+                )
+                db.add(nuovo_prodotto)
+        
+        # ELIMINA prodotti che non sono più nel form (solo se non venduti)
+        for prodotto_id, prodotto in prodotti_esistenti.items():
+            if prodotto_id not in prodotti_nel_form:
+                # Elimina solo se non ha vendite
+                if not prodotto.vendite:
+                    db.delete(prodotto)
+                else:
+                    # Log warning - prodotto venduto non può essere eliminato
+                    print(f"WARNING: Tentativo di eliminare prodotto venduto {prodotto_id}")
+        
+        
+        db.commit()
+        
+        return RedirectResponse(url="/acquisti?modificato=success", status_code=303)
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Errore nella modifica: {str(e)}")
+
+@app.delete("/acquisti/{acquisto_id}")
+async def elimina_acquisto(acquisto_id: int, db: Session = Depends(get_db)):
+    """Elimina acquisto (solo se non ha vendite)"""
+    try:
+        acquisto = db.query(Acquisto).options(joinedload(Acquisto.prodotti).joinedload(Prodotto.vendite)).filter(Acquisto.id == acquisto_id).first()
+        
+        if not acquisto:
+            return {"success": False, "error": "Acquisto non trovato"}
+        
+        # Verifica che nessun prodotto sia stato venduto
+        prodotti_venduti = [p for p in acquisto.prodotti if p.vendite]
+        if prodotti_venduti:
+            return {"success": False, "error": f"Impossibile eliminare: {len(prodotti_venduti)} prodotti già venduti"}
+        
+        # Elimina prodotti e poi acquisto
+        for prodotto in acquisto.prodotti:
+            db.delete(prodotto)
+        db.delete(acquisto)
+        
+        db.commit()
+        return {"success": True, "message": "Acquisto eliminato con successo"}
+        
+    except Exception as e:
+        db.rollback()
+        return {"success": False, "error": f"Errore: {str(e)}"}
+
+@app.post("/acquisti/{acquisto_id}/segna-arrivato")
+async def segna_acquisto_arrivato(acquisto_id: int, db: Session = Depends(get_db)):
+    """Segna acquisto come arrivato oggi"""
+    try:
+        acquisto = db.query(Acquisto).filter(Acquisto.id == acquisto_id).first()
+        
+        if not acquisto:
+            return {"success": False, "error": "Acquisto non trovato"}
+        
+        acquisto.data_consegna = date.today()
+        db.commit()
+        
+        return {"success": True, "message": "Acquisto segnato come arrivato"}
+        
+    except Exception as e:
+        db.rollback()
+        return {"success": False, "error": f"Errore: {str(e)}"}
+
+@app.get("/favicon.ico")
+async def favicon():
+    """Favicon placeholder"""
+    return {"message": "No favicon"}
+
+@app.get("/vendite/{vendita_id}/modifica", response_class=HTMLResponse)
+async def modifica_vendita_form(vendita_id: int, request: Request, db: Session = Depends(get_db)):
+    """Form per modificare vendita esistente"""
+    vendita = db.query(Vendita).options(joinedload(Vendita.prodotto)).filter(Vendita.id == vendita_id).first()
+    
+    if not vendita:
+        raise HTTPException(status_code=404, detail="Vendita non trovata")
+    
+    return templates.TemplateResponse("modifica_vendita.html", {
+        "request": request,
+        "vendita": vendita
+    })
+
+@app.post("/vendite/{vendita_id}/modifica")
+async def modifica_vendita(vendita_id: int, request: Request, db: Session = Depends(get_db)):
+    """Aggiorna vendita esistente"""
+    form_data = await request.form()
+    
+    try:
+        vendita = db.query(Vendita).filter(Vendita.id == vendita_id).first()
+        if not vendita:
+            raise HTTPException(status_code=404, detail="Vendita non trovata")
+        
+        # Aggiorna dati vendita
+        vendita.data_vendita = datetime.strptime(form_data.get("data_vendita"), "%Y-%m-%d").date()
+        vendita.canale_vendita = form_data.get("canale_vendita")
+        vendita.prezzo_vendita = float(form_data.get("prezzo_vendita", 0))
+        vendita.commissioni = float(form_data.get("commissioni", 0))
+        vendita.note_vendita = form_data.get("note_vendita")
+        
+        db.commit()
+        
+        return RedirectResponse(url="/vendite?modificato=success", status_code=303)
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Errore nella modifica: {str(e)}")
+
+@app.delete("/vendite/{vendita_id}")
+async def elimina_vendita(vendita_id: int, db: Session = Depends(get_db)):
+    """Elimina vendita"""
+    try:
+        vendita = db.query(Vendita).filter(Vendita.id == vendita_id).first()
+        
+        if not vendita:
+            return {"success": False, "error": "Vendita non trovata"}
+        
+        db.delete(vendita)
+        db.commit()
+        
+        return {"success": True, "message": "Vendita eliminata con successo"}
+        
+    except Exception as e:
+        db.rollback()
+        return {"success": False, "error": f"Errore: {str(e)}"}
+
+@app.get("/acquisti/{acquisto_id}/seriali", response_class=HTMLResponse)
+async def inserisci_seriali_form(acquisto_id: int, request: Request, db: Session = Depends(get_db)):
+    """Form per inserire seriali mancanti per un acquisto"""
+    acquisto = db.query(Acquisto).options(joinedload(Acquisto.prodotti)).filter(Acquisto.id == acquisto_id).first()
+    
+    if not acquisto:
+        raise HTTPException(status_code=404, detail="Acquisto non trovato")
+    
+    return templates.TemplateResponse("inserisci_seriali.html", {
+        "request": request,
+        "acquisto": acquisto
+    })
+
+@app.post("/acquisti/{acquisto_id}/seriali")
+async def salva_seriali_acquisto(acquisto_id: int, request: Request, db: Session = Depends(get_db)):
+    """Salva i seriali per un acquisto specifico"""
+    form_data = await request.form()
+    
+    try:
+        acquisto = db.query(Acquisto).filter(Acquisto.id == acquisto_id).first()
