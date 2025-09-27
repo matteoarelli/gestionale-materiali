@@ -17,14 +17,21 @@ class Acquisto(Base):
     data_pagamento = Column(Date, nullable=True)
     data_consegna = Column(Date, nullable=True)
     note = Column(Text, nullable=True)
-    acquirente = Column(String(100), default="Alessio")  # NUOVO CAMPO
+    acquirente = Column(String(100), default="Alessio")
+    
+    # NUOVI CAMPI per gestione problemi
+    problema_segnalato = Column(Boolean, default=False)
+    problema_tipo = Column(String, nullable=True)
+    problema_descrizione = Column(Text, nullable=True)
+    problema_data_segnalazione = Column(Date, nullable=True)
+    
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     # Relationships
     prodotti = relationship("Prodotto", back_populates="acquisto", cascade="all, delete-orphan")
     
-    # ProprietÃ  calcolate
+    # Proprietà calcolate
     @property 
     def numero_prodotti(self):
         """Numero totale di prodotti in questo acquisto"""
@@ -71,15 +78,15 @@ class Acquisto(Base):
     
     @property
     def giorni_attesa(self):
-        """Giorni di attesa se l'acquisto non Ã¨ ancora arrivato"""
+        """Giorni di attesa se l'acquisto non è ancora arrivato"""
         if self.data_consegna:
-            return None  # Se Ã¨ giÃ  arrivato, non c'Ã¨ attesa
+            return None  # Se è già arrivato, non c'è attesa
         
         # Calcola giorni dall'acquisto/pagamento a oggi
         if self.data_pagamento:
             return (date.today() - self.data_pagamento).days
         else:
-            # Se non c'Ã¨ data pagamento, usa la data di creazione
+            # Se non c'è data pagamento, usa la data di creazione
             return (date.today() - self.created_at.date()).days
     
     @property
@@ -116,6 +123,10 @@ class Acquisto(Base):
         """True se l'acquisto ha problemi che richiedono attenzione"""
         problemi = []
         
+        # Problema segnalato manualmente
+        if self.problema_segnalato:
+            problemi.append("problema_segnalato")
+        
         # Non ancora arrivato
         if not self.data_consegna:
             problemi.append("non_arrivato")
@@ -124,7 +135,7 @@ class Acquisto(Base):
         if self.prodotti_senza_seriali > 0:
             problemi.append("senza_seriali")
         
-        # Vendita lenta (se arrivato da piÃ¹ di 30 giorni e non completamente venduto)
+        # Vendita lenta (se arrivato da più di 30 giorni e non completamente venduto)
         if self.data_consegna and not self.completamente_venduto:
             giorni_stock = (date.today() - self.data_consegna).days
             if giorni_stock > 30:
@@ -132,7 +143,7 @@ class Acquisto(Base):
         
         # Margine basso (se ha vendite)
         if self.prodotti_venduti > 0:
-            # Calcola marginalitÃ  business (escluso fotorip)
+            # Calcola marginalità business (escluso fotorip)
             ricavi_business = sum(
                 sum(v.ricavo_netto for v in p.vendite if v.canale_vendita != "RIPARAZIONI")
                 for p in self.prodotti if p.vendite
@@ -158,6 +169,19 @@ class Acquisto(Base):
         """Lista testuale dei problemi"""
         problemi = []
         
+        # Problema segnalato ha priorità
+        if self.problema_segnalato:
+            tipo_leggibile = {
+                "pacco_perso": "Pacco Perso",
+                "prodotti_non_conformi": "Prodotti Non Conformi", 
+                "prodotti_danneggiati": "Prodotti Danneggiati",
+                "ritardo_consegna": "Ritardo Consegna",
+                "problema_venditore": "Problema Venditore",
+                "altro": "Altro Problema"
+            }.get(self.problema_tipo, self.problema_tipo or "Problema Segnalato")
+            problemi.append(tipo_leggibile)
+            return problemi  # Se c'è un problema segnalato, mostra solo quello
+        
         if not self.data_consegna:
             problemi.append("Non arrivato")
         if self.prodotti_senza_seriali > 0:
@@ -175,6 +199,17 @@ class Acquisto(Base):
     def urgenza_score(self):
         """Score di urgenza 0-100"""
         score = 0
+        
+        # Problema segnalato ha massima priorità
+        if self.problema_segnalato:
+            score += 60
+            # Aggiungi urgenza in base al tipo di problema
+            if self.problema_tipo in ["pacco_perso", "prodotti_danneggiati"]:
+                score += 30
+            elif self.problema_tipo in ["ritardo_consegna", "prodotti_non_conformi"]:
+                score += 20
+            else:
+                score += 10
         
         # Non arrivato
         if not self.data_consegna:
@@ -213,10 +248,10 @@ class Prodotto(Base):
     acquisto = relationship("Acquisto", back_populates="prodotti")
     vendite = relationship("Vendita", back_populates="prodotto", cascade="all, delete-orphan")
     
-    # ProprietÃ  calcolate
+    # Proprietà calcolate
     @property
     def venduto(self):
-        """True se il prodotto Ã¨ stato venduto"""
+        """True se il prodotto è stato venduto"""
         return len(self.vendite) > 0
     
     @property 
@@ -284,7 +319,7 @@ class Vendita(Base):
     # Relationships
     prodotto = relationship("Prodotto", back_populates="vendite")
     
-    # ProprietÃ  calcolate
+    # Proprietà calcolate
     @property
     def ricavo_netto(self):
         """Ricavo netto (prezzo - commissioni)"""
@@ -337,7 +372,7 @@ class Vendita(Base):
     
     @property
     def velocita_vendita(self):
-        """Classificazione velocitÃ  di vendita"""
+        """Classificazione velocità di vendita"""
         giorni = self.giorni_vendita
         if giorni is None:
             return "sconosciuta"
