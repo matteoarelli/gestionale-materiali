@@ -374,7 +374,7 @@ async def salva_seriali_multipli(request: Request, db: Session = Depends(get_db)
             continue
             
         try:
-            # Verifica che il seriale non esista già    
+            # Verifica che il seriale non esista già
             if db.query(Prodotto).filter(Prodotto.seriale == nuovo_seriale).first():
                 errori.append(f"Seriale {nuovo_seriale} già esistente nel database")
                 seriali_duplicati += 1
@@ -494,7 +494,7 @@ async def problemi(request: Request, db: Session = Depends(get_db)):
                 'margine_percentuale': margine_percentuale
             })
     
-    # Ordina per gravità 
+    # Ordina per gravità
     vendite_lente.sort(key=lambda x: x['giorni_stock'], reverse=True)
     margini_critici.sort(key=lambda x: x['margine_percentuale'])
     
@@ -771,47 +771,55 @@ async def performance_dashboard(request: Request, db: Session = Depends(get_db))
 
 @app.get("/statistiche", response_class=HTMLResponse)
 async def statistiche_periodiche(request: Request, db: Session = Depends(get_db)):
-    """Statistiche per periodo (settimana/mese) - ESCLUSI prodotti fotorip"""
+    """Statistiche per periodo (settimana/mese) basate su DATA ACQUISTO"""
     
     periodo = request.query_params.get("periodo", "mese")  # mese o settimana
     
-    # Query base per acquisti con vendite, esclusi fotorip
-    query = db.query(Acquisto).options(
+    # Query: prendi tutti gli acquisti con data_pagamento (data acquisto)
+    acquisti = db.query(Acquisto).options(
         joinedload(Acquisto.prodotti).joinedload(Prodotto.vendite)
     ).filter(
-        Acquisto.data_consegna.isnot(None),
-        ~Acquisto.prodotti.any(  # Escludi acquisti che contengono solo prodotti fotorip
-            Prodotto.vendite.any(Vendita.canale_vendita == "RIPARAZIONI")
-        )
-    )
+        Acquisto.data_pagamento.isnot(None)  # CAMBIATO: usa data_pagamento
+    ).all()
     
-    acquisti = query.all()
-    
-    # Raggruppa per periodo
+    # Raggruppa per periodo BASATO SU DATA ACQUISTO
     periodi = {}
     
     for acquisto in acquisti:
-        if not acquisto.data_consegna:
+        if not acquisto.data_pagamento:
             continue
         
-        # Filtra solo prodotti business (non fotorip)
-        prodotti_business = [p for p in acquisto.prodotti 
-                           if not any(v.canale_vendita == "RIPARAZIONI" for v in p.vendite)]
+        # Filtra prodotti business (non fotorip)
+        prodotti_business = []
+        for p in acquisto.prodotti:
+            is_fotorip = any(v.canale_vendita == "RIPARAZIONI" for v in p.vendite)
+            if not is_fotorip:
+                prodotti_business.append(p)
         
+        # Salta acquisti che sono SOLO fotorip (per non contarli nel count)
+        # MA includiamo comunque il loro costo nell'investimento totale se hanno anche prodotti business
         if not prodotti_business:
-            continue  # Salta acquisti che sono solo fotorip
-            
-        # Determina chiave periodo
+            continue
+        
+        # CHIAVE PERIODO: Basata su DATA_PAGAMENTO (data acquisto)
         if periodo == "settimana":
-            # Settimana ISO
-            year, week, _ = acquisto.data_consegna.isocalendar()
+            year, week, _ = acquisto.data_pagamento.isocalendar()
             periodo_key = f"{year}-W{week:02d}"
             periodo_label = f"Settimana {week}/{year}"
         else:
-            # Mese
-            periodo_key = acquisto.data_consegna.strftime("%Y-%m")
-            periodo_label = acquisto.data_consegna.strftime("%B %Y")
+            periodo_key = acquisto.data_pagamento.strftime("%Y-%m")
+            # Converti nome mese in italiano
+            mesi_ita = {
+                'January': 'Gennaio', 'February': 'Febbraio', 'March': 'Marzo',
+                'April': 'Aprile', 'May': 'Maggio', 'June': 'Giugno',
+                'July': 'Luglio', 'August': 'Agosto', 'September': 'Settembre',
+                'October': 'Ottobre', 'November': 'Novembre', 'December': 'Dicembre'
+            }
+            mese_nome = acquisto.data_pagamento.strftime("%B")
+            anno = acquisto.data_pagamento.strftime("%Y")
+            periodo_label = f"{mesi_ita.get(mese_nome, mese_nome)} {anno}"
         
+        # Inizializza periodo se non esiste
         if periodo_key not in periodi:
             periodi[periodo_key] = {
                 "label": periodo_label,
@@ -822,19 +830,21 @@ async def statistiche_periodiche(request: Request, db: Session = Depends(get_db)
                 "count": 0
             }
         
-        # Calcola metriche (solo per prodotti business)
-        costo_per_prodotto = acquisto.costo_totale / len(acquisto.prodotti)  # Costo unitario originale
-        costo_business = costo_per_prodotto * len(prodotti_business)  # Costo solo business
+        # CALCOLO INVESTIMENTO: TUTTO il costo dell'acquisto (incluso fotorip)
+        investimento_totale = acquisto.costo_totale
         
-        ricavi_business = sum(
-            sum(v.ricavo_netto for v in p.vendite if v.canale_vendita != "RIPARAZIONI") 
-            for p in prodotti_business if p.vendite
-        )
+        # CALCOLO RICAVI: solo da vendite business effettuate (escluso fotorip)
+        ricavi_business = 0
+        for p in prodotti_business:
+            for v in p.vendite:
+                if v.canale_vendita != "RIPARAZIONI":
+                    ricavi_business += v.ricavo_netto
         
+        # Aggiungi ai totali del periodo
         periodi[periodo_key]["acquisti"].append(acquisto)
-        periodi[periodo_key]["investimento"] += costo_business
+        periodi[periodo_key]["investimento"] += investimento_totale
         periodi[periodo_key]["ricavi"] += ricavi_business
-        periodi[periodo_key]["margine"] += ricavi_business - costo_business
+        periodi[periodo_key]["margine"] += ricavi_business - investimento_totale
         periodi[periodo_key]["count"] += 1
     
     # Converti in lista e calcola percentuali
